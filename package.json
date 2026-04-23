@@ -25,8 +25,7 @@
     "files": [
       "src/**/*",
       "models/**/*",
-      "config.json",
-      "settings.json",
+      "settings.defaults.json",
       "README.md"
     ],
     "win": {
@@ -40,9 +39,9 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico",
-      "installerHeaderIcon": "build/icon.ico",
+      "installerIcon": "src/assets/openclaw.ico",
+      "uninstallerIcon": "src/assets/openclaw.ico",
+      "installerHeaderIcon": "src/assets/openclaw.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "DesktopClaw"

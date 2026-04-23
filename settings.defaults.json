@@ -1,0 +1,54 @@
+{
+    "petName": "Claw",
+    "alwaysOnTop": true,
+    "wakeWord": "hey claw",
+    "wakeWordEnabled": true,
+    "mute": false,
+    "volume": 1,
+    "clickThroughWhenIdle": false,
+    "globalHotkeys": {
+        "listen": "CommandOrControl+Shift+Space",
+        "toggleMute": "CommandOrControl+Shift+M",
+        "toggleVisibility": "CommandOrControl+Shift+H",
+        "openSettings": "CommandOrControl+Shift+S"
+    },
+    "window": {
+        "width": 380,
+        "height": 440,
+        "anchor": "bottom-right",
+        "margin": 24,
+        "scale": 1
+    },
+    "gateway": {
+        "mode": "gateway",
+        "baseUrl": "ws://localhost:18789",
+        "chatPath": "",
+        "statusPath": "",
+        "eventsUrl": "ws://localhost:18789",
+        "eventsEnabled": false,
+        "sessionKey": "main",
+        "token": "",
+        "password": "",
+        "timeoutMs": 15000
+    },
+    "tts": {
+        "voiceName": "",
+        "rate": 1,
+        "pitch": 1,
+        "useSystemTts": false,
+        "usePiperTts": true,
+        "piperExe": "C:\\piper\\piper\\piper.exe",
+        "piperModel": "C:\\piper\\voices\\en_US-hal_6409-medium.onnx"
+    },
+    "status": {
+        "pollEnabled": true,
+        "pollIntervalMs": 30000,
+        "speakNotifications": false,
+        "showNotifications": true,
+        "nativeNotifications": true
+    },
+    "idle": {
+        "quirkMinSeconds": 10,
+        "quirkMaxSeconds": 30
+    }
+}

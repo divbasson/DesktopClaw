@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const defaultConfigPath = path.join(__dirname, '..', '..', 'settings.json');
+const defaultConfigPath = path.join(__dirname, '..', '..', 'settings.defaults.json');
 
 function getConfigPath() {
   try {
