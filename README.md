@@ -9,10 +9,14 @@
 
   # DesktopClaw
 
-  [![Build and Release DesktopClaw](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml/badge.svg?branch=main&event=release)](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml)
+[![CodeQL](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql)
 
   *A Windows desktop pet companion powered by OpenClaw.*
 </div>
+
+## Prieview
+
+
 
 <br/>
 
