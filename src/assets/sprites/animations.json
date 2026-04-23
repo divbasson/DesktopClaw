@@ -1,0 +1,11 @@
+{
+  "style": "openclaw-pet-mvp",
+  "notes": "CSS-driven sprite substitute matching the provided rounded red mascot direction.",
+  "states": {
+    "idle": { "fps": 5, "loop": true, "frames": ["blink", "breathe", "micro-float"] },
+    "listening": { "fps": 6, "loop": true, "frames": ["antenna-glow", "idle", "look"] },
+    "thinking": { "fps": 6, "loop": true, "frames": ["orbital-glow", "idle"] },
+    "speaking": { "fps": 12, "loop": true, "frames": ["mouth-closed", "mouth-mid", "mouth-open"] },
+    "quirks": ["hop", "wiggle", "look", "stretch"]
+  }
+}

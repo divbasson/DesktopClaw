@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; media-src 'self' blob: data:; connect-src *;" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DesktopClaw</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app" class="state-idle">
+      <div id="pet-shell">
+        <div id="pet-glow"></div>
+        <div id="pet" aria-label="Desktop pet">
+          <div class="antenna antenna-left"></div>
+          <div class="antenna antenna-right"></div>
+          <div class="arm arm-left"></div>
+          <div class="arm arm-right"></div>
+          <div class="body">
+            <div class="eye eye-left"><span class="pupil"></span></div>
+            <div class="eye eye-right"><span class="pupil"></span></div>
+            <div class="mouth mouth-closed"></div>
+            <div class="foot foot-left"></div>
+            <div class="foot foot-right"></div>
+          </div>
+        </div>
+        <div id="shadow"></div>
+      </div>
+
+      <div id="speech-bubble" class="hidden"></div>
+      <div id="status-pill">offline</div>
+      <div id="notification-stack"></div>
+
+      <button id="settings-toggle" title="Settings">⚙</button>
+
+      <section id="settings-panel" class="hidden">
+        <h2>DesktopClaw</h2>
+        <label>Wake word <input id="wake-word" type="text" /></label>
+        <label>Wake word enabled <input id="wake-word-enabled" type="checkbox" /></label>
+        <label>Always on top <input id="always-on-top" type="checkbox" /></label>
+        <label>Mute <input id="mute" type="checkbox" /></label>
+        <label>Volume <input id="volume" type="range" min="0" max="1" step="0.05" /></label>
+        <label>Voice <select id="voice-name"><option value="">System default</option></select></label>
+        <label>Click-through when idle <input id="click-through-when-idle" type="checkbox" /></label>
+        <label>Status polling <input id="poll-enabled" type="checkbox" /></label>
+        <label>Poll interval (ms) <input id="poll-interval-ms" type="number" min="5000" step="1000" /></label>
+        <label>Show notifications <input id="show-notifications" type="checkbox" /></label>
+        <label>Speak notifications <input id="speak-notifications" type="checkbox" /></label>
+        <label>Gateway mode
+          <select id="gateway-mode">
+            <option value="mock">Mock</option>
+            <option value="gateway">Gateway WebSocket</option>
+          </select>
+        </label>
+        <label>Gateway endpoint <input id="gateway-url" type="text" placeholder="ws://192.168.0.159:18789" /></label>
+        <label>Session key <input id="gateway-chat-path" type="text" placeholder="main" /></label>
+        <label>Status method <input id="gateway-status-path" type="text" placeholder="health" /></label>
+        <label>Events endpoint (optional) <input id="gateway-events-url" type="text" placeholder="ws://192.168.0.159:18789" /></label>
+        <label>Subscribe to live events <input id="gateway-events-enabled" type="checkbox" /></label>
+        <label>Token <input id="gateway-token" type="password" /></label>
+        <label>Password <input id="gateway-password" type="password" /></label>
+        <label>Listen hotkey <input id="hotkey-listen" type="text" /></label>
+        <div class="actions">
+          <button id="save-settings">Save</button>
+          <button id="test-status">Status</button>
+          <button id="close-settings">Close</button>
+        </div>
+      </section>
+
+      <section id="interaction-shell" class="hidden">
+        <div id="interaction-card">
+          <input id="text-input" type="text" placeholder="Talk to Claw…" autocomplete="off" />
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="renderer.js"></script>
+  </body>
+</html>
