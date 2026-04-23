@@ -1,8 +1,22 @@
-# DesktopClaw
+<div align="center">
+  <img src="src/assets/brand/banner.png" alt="DesktopClaw — Your Vigilant, Warm Desktop Companion" width="100%" />
+</div>
 
-[![Build and Release DesktopClaw](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml/badge.svg?branch=main&event=release)](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml)
+<br/>
 
-A Windows-focused desktop pet companion for OpenClaw, built as an Electron MVP.
+<div align="center">
+  <img src="src/assets/brand/avatar.png" alt="DesktopClaw Avatar" width="96" />
+
+  # DesktopClaw
+
+  [![Build and Release DesktopClaw](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml/badge.svg?branch=main&event=release)](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml)
+
+  <img src="src/assets/brand/logo.png" alt="DesktopClaw Logo" width="380" />
+
+  *A Windows desktop pet companion powered by OpenClaw.*
+</div>
+
+<br/>
 
 ## What this prototype does
 
@@ -24,6 +38,12 @@ A Windows-focused desktop pet companion for OpenClaw, built as an Electron MVP.
 - Voice selection from available system TTS voices
 - Cursor-proximity reaction for a more alive idle feel
 - System tray menu for quick pet actions
+
+## Preview
+
+<div align="center">
+  <img src="src/assets/brand/preview-notification.png" alt="DesktopClaw in action — System Ready notification" width="600" />
+</div>
 
 ## Architecture
 
@@ -170,3 +190,11 @@ So the codebase is ready for `.exe` output, but final packaging depends on the h
 3. Replace CSS pet with full PNG sprite atlas from the approved art pack
 4. Add WebSocket/live OpenClaw events and notification badges
 5. Add click-through-on-idle behavior tuning and cursor reactions
+
+---
+
+<div align="center">
+  <img src="src/assets/brand/logo.png" alt="DesktopClaw" width="280" />
+  <br/>
+  <sub>© DesktopClaw — Your Vigilant, Warm Desktop Companion</sub>
+</div>
