@@ -11,8 +11,6 @@
 
   [![Build and Release DesktopClaw](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml/badge.svg?branch=main&event=release)](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml)
 
-  <img src="src/assets/brand/logo.png" alt="DesktopClaw Logo" width="380" />
-
   *A Windows desktop pet companion powered by OpenClaw.*
 </div>
 
