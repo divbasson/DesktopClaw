@@ -42,6 +42,7 @@ class UiShell {
       hasShadow: false,
       alwaysOnTop: this.config.alwaysOnTop,
       skipTaskbar: false,
+      icon: path.join(__dirname, '..', 'assets', 'openclaw.ico'),
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
         contextIsolation: true,

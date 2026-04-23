@@ -79,8 +79,8 @@ export class WakeWordEngine {
     while (this.enabled) {
       try {
         const result = await this.listen({
-          timeoutSeconds: 3.2,
-          silenceSeconds: 0.7,
+          timeoutSeconds: 6.5, // Increased for better user response window
+          silenceSeconds: 1.5, // Increased to avoid cutting off replies
         });
 
         const transcript = String(result?.text || '').trim().toLowerCase();

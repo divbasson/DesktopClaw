@@ -16,21 +16,36 @@
   "build": {
     "appId": "com.openclaw.desktoppet",
     "productName": "DesktopClaw",
+    "icon": "src/assets/openclaw.ico",
+    "asar": false,
     "directories": {
-      "buildResources": "build"
+      "buildResources": "build",
+      "output": "dist"
     },
     "files": [
       "src/**/*",
+      "models/**/*",
       "config.json",
-      "README.md",
-      "build/**/*"
+      "settings.json",
+      "README.md"
     ],
     "win": {
+      "icon": "src/assets/openclaw.ico",
       "signAndEditExecutable": false,
       "target": [
         "nsis",
         "portable"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DesktopClaw"
     }
   },
   "devDependencies": {

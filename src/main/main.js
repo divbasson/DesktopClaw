@@ -2,6 +2,9 @@ const { app } = require('electron');
 const { AppController } = require('./app-controller');
 const { getLogPath, logError, logInfo } = require('./logger');
 
+// Ensure Windows taskbar shows the correct icon and groups the app correctly
+app.setAppUserModelId('com.openclaw.desktoppet');
+
 let controller;
 
 process.on('uncaughtException', (error) => {

@@ -1,11 +1,67 @@
 {
-  "style": "openclaw-pet-mvp",
-  "notes": "CSS-driven sprite substitute matching the provided rounded red mascot direction.",
+  "style": "openclaw-pet-deluxe",
+  "notes": "Enhanced CSS-driven mascot system with layered activities, richer idle motion, accessory props, and optional music-reactive mode when the host app emits audio activity events.",
   "states": {
-    "idle": { "fps": 5, "loop": true, "frames": ["blink", "breathe", "micro-float"] },
-    "listening": { "fps": 6, "loop": true, "frames": ["antenna-glow", "idle", "look"] },
-    "thinking": { "fps": 6, "loop": true, "frames": ["orbital-glow", "idle"] },
-    "speaking": { "fps": 12, "loop": true, "frames": ["mouth-closed", "mouth-mid", "mouth-open"] },
-    "quirks": ["hop", "wiggle", "look", "stretch"]
+    "idle": {
+      "fps": 5,
+      "loop": true,
+      "frames": ["blink", "breathe", "micro-float", "ambient-orbs"],
+      "supportsActivities": true
+    },
+    "listening": {
+      "fps": 6,
+      "loop": true,
+      "frames": ["antenna-glow", "listen-bob", "sonar-ring", "alert-brow"]
+    },
+    "thinking": {
+      "fps": 6,
+      "loop": true,
+      "frames": ["orbital-glow", "pupil-scan", "thought-orbit", "focus-brow"]
+    },
+    "speaking": {
+      "fps": 12,
+      "loop": true,
+      "frames": ["mouth-closed", "mouth-mid", "mouth-open", "speak-squish"]
+    },
+    "error": {
+      "fps": 10,
+      "loop": false,
+      "frames": ["error-shake", "error-glow"]
+    }
+  },
+  "activities": {
+    "reading": {
+      "loop": true,
+      "prop": "book",
+      "motion": ["book-bounce", "downward-gaze"]
+    },
+    "coding": {
+      "loop": true,
+      "prop": "laptop",
+      "motion": ["typing-arms", "screen-flicker"]
+    },
+    "sleeping": {
+      "loop": true,
+      "prop": "sleep-bubble",
+      "motion": ["sleep-breathe", "closed-eyes"]
+    },
+    "eating": {
+      "loop": true,
+      "prop": "snack",
+      "motion": ["chew", "nibble-hand"]
+    },
+    "music": {
+      "loop": true,
+      "prop": "headphones",
+      "motion": ["beat-bob", "groove-arms", "happy-eyes"],
+      "requiresAudioActivity": true
+    }
+  },
+  "quirks": ["hop", "wiggle", "look", "stretch", "spin", "wave"],
+  "scheduler": {
+    "idleActivityMinMs": 14000,
+    "idleActivityMaxMs": 28000,
+    "activityDurationMinMs": 9000,
+    "activityDurationMaxMs": 17000
   }
 }

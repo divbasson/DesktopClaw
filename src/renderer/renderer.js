@@ -7,6 +7,7 @@ import { RendererUiShell } from './ui_shell.js';
 const app = document.getElementById('app');
 const pet = document.getElementById('pet');
 const petShell = document.getElementById('pet-shell');
+const accessories = document.getElementById('pet-accessories');
 const mouth = document.querySelector('.mouth');
 const bubble = document.getElementById('speech-bubble');
 const textInput = document.getElementById('text-input');
@@ -40,6 +41,20 @@ const fields = {
   hotkeyListen: document.getElementById('hotkey-listen'),
 };
 
+const RANDOM_ACTIVITY_POOL = ['reading', 'coding', 'sleeping', 'eating'];
+const ACTIVITY_CLASS_NAMES = [
+  'activity-reading',
+  'activity-coding',
+  'activity-sleeping',
+  'activity-eating',
+  'activity-music',
+  'activity-musicOnly',
+];
+const ACTIVITY_MIN_MS = 9000;
+const ACTIVITY_MAX_MS = 17000;
+const IDLE_GAP_MIN_MS = 14000;
+const IDLE_GAP_MAX_MS = 28000;
+
 let config;
 let dragState = null;
 let lastState = 'idle';
@@ -47,8 +62,20 @@ let composerPinned = false;
 let composerHideTimer = null;
 let dragMoved = false;
 let voiceCaptureInFlight = false;
+let activityTimer = null;
+let activityEndTimer = null;
+let currentActivity = null;
+let currentActivityReason = null;
+let pendingIdleActivityRestore = false;
+let lastActivityAt = 0;
+let audioIsActive = false;
+let audioDebounceTimer = null;
 
-const animationEngine = new AnimationEngine({ app, mouth, config: { idle: { quirkMinSeconds: 10, quirkMaxSeconds: 30 } } });
+const animationEngine = new AnimationEngine({
+  app,
+  mouth,
+  config: { idle: { quirkMinSeconds: 10, quirkMaxSeconds: 30 } },
+});
 const uiShell = new RendererUiShell({ bubble, settingsPanel, fields });
 const openclawClient = new RendererOpenClawClient();
 
@@ -82,6 +109,169 @@ function getVoices() {
   return window.speechSynthesis.getVoices().map((voice) => ({ name: voice.name, lang: voice.lang }));
 }
 
+function randomBetween(min, max) {
+  return Math.round(min + Math.random() * (max - min));
+}
+
+function clearAccessoryLayer() {
+  accessories.innerHTML = '';
+  pet.classList.remove(...ACTIVITY_CLASS_NAMES);
+}
+
+function createHeadphones() {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'accessory-headphones';
+
+  const earLeft = document.createElement('span');
+  earLeft.className = 'ear ear-left';
+  const earRight = document.createElement('span');
+  earRight.className = 'ear ear-right';
+
+  wrapper.appendChild(earLeft);
+  wrapper.appendChild(earRight);
+  return wrapper;
+}
+
+function createLaptop() {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'accessory-laptop';
+
+  const screen = document.createElement('span');
+  screen.className = 'screen';
+  wrapper.appendChild(screen);
+  return wrapper;
+}
+
+function createAccessoryForActivity(name) {
+  switch (name) {
+    case 'reading': {
+      const book = document.createElement('div');
+      book.className = 'accessory-book';
+      return book;
+    }
+    case 'coding':
+      return createLaptop();
+    case 'sleeping': {
+      const bubbleNode = document.createElement('div');
+      bubbleNode.className = 'accessory-sleep-bubble';
+      return bubbleNode;
+    }
+    case 'eating': {
+      const snack = document.createElement('div');
+      snack.className = 'accessory-snack';
+      return snack;
+    }
+    case 'music':
+      return createHeadphones();
+    default:
+      return null;
+  }
+}
+
+function applyAccessoryActivity(name) {
+  clearAccessoryLayer();
+  if (!name) return;
+
+  const className = name === 'music' && lastState !== 'idle'
+    ? 'activity-musicOnly'
+    : `activity-${name}`;
+
+  pet.classList.add(className);
+
+  const node = createAccessoryForActivity(name);
+  if (node) {
+    accessories.appendChild(node);
+  }
+}
+
+function cancelActivityTimers() {
+  clearTimeout(activityTimer);
+  clearTimeout(activityEndTimer);
+  activityTimer = null;
+  activityEndTimer = null;
+}
+
+function scheduleIdleActivity() {
+  cancelActivityTimers();
+  if (audioIsActive || lastState !== 'idle' || composerPinned || !interactionShell.classList.contains('hidden') || !settingsPanel.classList.contains('hidden')) {
+    return;
+  }
+
+  const waitMs = randomBetween(IDLE_GAP_MIN_MS, IDLE_GAP_MAX_MS);
+  activityTimer = setTimeout(() => {
+    if (audioIsActive || lastState !== 'idle' || composerPinned) return;
+    const next = RANDOM_ACTIVITY_POOL[Math.floor(Math.random() * RANDOM_ACTIVITY_POOL.length)];
+    beginActivity(next, 'idle-random');
+  }, waitMs);
+}
+
+function endActivity({ preserveMusic = false } = {}) {
+  clearTimeout(activityEndTimer);
+  activityEndTimer = null;
+
+  if (preserveMusic && audioIsActive) {
+    beginActivity('music', 'audio');
+    return;
+  }
+
+  currentActivity = null;
+  currentActivityReason = null;
+  clearAccessoryLayer();
+  if (lastState === 'idle' && !audioIsActive) {
+    scheduleIdleActivity();
+  }
+}
+
+function beginActivity(name, reason = 'idle-random', durationMs = null) {
+  cancelActivityTimers();
+  currentActivity = name;
+  currentActivityReason = reason;
+  lastActivityAt = Date.now();
+  applyAccessoryActivity(name);
+
+  if (name === 'music') {
+    return;
+  }
+
+  const lifetime = durationMs ?? randomBetween(ACTIVITY_MIN_MS, ACTIVITY_MAX_MS);
+  activityEndTimer = setTimeout(() => {
+    endActivity();
+  }, lifetime);
+}
+
+function pauseActivityForState() {
+  if (!currentActivity) return;
+  if (currentActivity === 'music' && audioIsActive) {
+    applyAccessoryActivity('music');
+    return;
+  }
+  pendingIdleActivityRestore = currentActivityReason === 'idle-random';
+  clearAccessoryLayer();
+}
+
+function resumeActivityIfNeeded() {
+  if (audioIsActive) {
+    beginActivity('music', 'audio');
+    return;
+  }
+
+  if (pendingIdleActivityRestore) {
+    pendingIdleActivityRestore = false;
+    const sinceLast = Date.now() - lastActivityAt;
+    if (sinceLast < 5000) {
+      scheduleIdleActivity();
+      return;
+    }
+  }
+
+  if (!currentActivity) {
+    scheduleIdleActivity();
+    return;
+  }
+
+  applyAccessoryActivity(currentActivity);
+}
+
 function setInteractiveMode(enabled) {
   if (!config?.clickThroughWhenIdle) {
     window.desktopClaw.setIgnoreMouse(false);
@@ -97,6 +287,12 @@ function setState(state) {
   const composerVisible = !interactionShell.classList.contains('hidden');
   const settingsVisible = !settingsPanel.classList.contains('hidden');
   setInteractiveMode(state !== 'idle' || composerVisible || settingsVisible || !config?.clickThroughWhenIdle);
+
+  if (state === 'idle') {
+    resumeActivityIfNeeded();
+  } else {
+    pauseActivityForState();
+  }
 }
 
 function openComposer({ focus = false, clear = false } = {}) {
@@ -123,6 +319,9 @@ function closeComposer(force = false) {
     textInput.blur();
   }
   setInteractiveMode(false);
+  if (lastState === 'idle') {
+    scheduleIdleActivity();
+  }
 }
 
 function scheduleComposerClose(delay = 300) {
@@ -150,9 +349,7 @@ const ttsEngine = new TtsEngine({
       animationEngine.scheduleQuirk();
     }, 900);
   },
-  onProgress: () => {
-    // Bubble is rendered upfront; no char-by-char overlay needed
-  },
+  onProgress: () => {},
 });
 
 const wakeWordEngine = new WakeWordEngine({
@@ -175,7 +372,10 @@ function applyCursorReaction() {
     pet.classList.toggle('cursor-near', distance < 180);
   });
 
-  petShell.addEventListener('mouseenter', () => openComposer({ focus: false }));
+  petShell.addEventListener('mouseenter', () => {
+    openComposer({ focus: false });
+    cancelActivityTimers();
+  });
   petShell.addEventListener('mouseleave', () => scheduleComposerClose());
   interactionShell.addEventListener('mouseenter', () => clearTimeout(composerHideTimer));
   interactionShell.addEventListener('mouseleave', () => scheduleComposerClose());
@@ -193,11 +393,32 @@ function applyConfig(nextConfig) {
     wakeWordEngine.start();
   }
   setInteractiveMode(false);
+  if (lastState === 'idle') {
+    scheduleIdleActivity();
+  }
 }
 
 async function speak(text) {
   if (config.mute) return;
-  await ttsEngine.speak(text);
+  const plain = stripMarkdown(text);
+  await ttsEngine.speak(plain);
+}
+
+function stripMarkdown(md) {
+  let text = md.replace(/```[\s\S]*?```/g, '');
+  text = text.replace(/`([^`]+)`/g, '$1');
+  text = text.replace(/!\[[^\]]*\]\([^\)]*\)/g, '');
+  text = text.replace(/\[([^\]]+)\]\([^\)]*\)/g, '$1');
+  text = text.replace(/^#+\s+/gm, '');
+  text = text.replace(/^>\s+/gm, '');
+  text = text.replace(/^\s*[-*+]\s+/gm, '');
+  text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+  text = text.replace(/\*([^*]+)\*/g, '$1');
+  text = text.replace(/__([^_]+)__/g, '$1');
+  text = text.replace(/_([^_]+)_/g, '$1');
+  text = text.replace(/~~([^~]+)~~/g, '$1');
+  text = text.replace(/#\w+/g, '');
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 async function submitQuery(text) {
@@ -223,11 +444,8 @@ async function submitQuery(text) {
     return;
   }
 
-  // Render markdown immediately so it's visible while TTS loads/plays
   showSpeech(result.text, 0);
   await speak(result.text);
-  // Set auto-hide timeout and ensure idle state (onEnd handles it when TTS active;
-  // when muted or no TTS configured, we handle it here)
   uiShell.finishBubbleReveal(result.text, 9000);
   if (config.mute) {
     setState('idle');
@@ -274,7 +492,6 @@ function extractCommandFromWakeTranscript(transcript) {
 
   const wakeNameToken = wakeTokens[wakeTokens.length - 1];
   const heardNameToken = heardTokens[1];
-  // Accept any short first token (≤4 chars) as a potential mis-transcription of 'hey'/'hi'/'ok'
   const firstTokenIsWakeStart = heardTokens[0].length <= 4;
   const isLikelyWakePrefix = firstTokenIsWakeStart && editDistance(wakeNameToken, heardNameToken) <= 2;
 
@@ -307,8 +524,8 @@ async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
     showSpeech(source === 'wake' ? 'Yes? I am listening.' : 'Listening...', 2200);
 
     const result = await window.desktopClaw.listenNativeOnce({
-      timeoutSeconds: 6,
-      silenceSeconds: 1,
+      timeoutSeconds: 8,
+      silenceSeconds: 2,
     });
 
     const transcript = String(result?.text || '').trim();
@@ -383,6 +600,7 @@ function installDragging() {
     dragState = { x: event.screenX, y: event.screenY };
     dragMoved = false;
     pet.classList.add('dragging');
+    cancelActivityTimers();
   });
 
   window.addEventListener('pointermove', (event) => {
@@ -402,7 +620,28 @@ function installDragging() {
     setInteractiveMode(false);
     if (shouldFocusComposer) {
       openComposer({ focus: true, clear: false });
+    } else if (lastState === 'idle') {
+      scheduleIdleActivity();
     }
+  });
+}
+
+function attachOptionalAudioHook() {
+  if (typeof window.desktopClaw?.onAudioActive !== 'function') {
+    reportRuntimeIssue('Audio activity hook not available. Music mode will stay inactive until preload/main process exposes onAudioActive.', null, 'info');
+    return;
+  }
+
+  window.desktopClaw.onAudioActive((active) => {
+    clearTimeout(audioDebounceTimer);
+    audioDebounceTimer = setTimeout(() => {
+      audioIsActive = !!active;
+      if (audioIsActive) {
+        beginActivity('music', 'audio');
+      } else if (currentActivity === 'music') {
+        endActivity();
+      }
+    }, active ? 120 : 800);
   });
 }
 
@@ -413,6 +652,7 @@ window.desktopClaw.onShortcutStatus(() => checkStatus());
 window.desktopClaw.onSettingsOpen(() => {
   setInteractiveMode(true);
   uiShell.toggleSettings(true);
+  cancelActivityTimers();
 });
 window.desktopClaw.onConfigUpdated((nextConfig) => applyConfig(nextConfig));
 
@@ -420,6 +660,7 @@ textInput.addEventListener('focus', () => {
   composerPinned = true;
   clearTimeout(composerHideTimer);
   setInteractiveMode(true);
+  cancelActivityTimers();
 });
 
 textInput.addEventListener('blur', () => {
@@ -443,6 +684,7 @@ textInput.addEventListener('keydown', (event) => {
 closeSettings.addEventListener('click', () => {
   uiShell.toggleSettings(false);
   setInteractiveMode(false);
+  if (lastState === 'idle') scheduleIdleActivity();
 });
 saveSettings.addEventListener('click', () => saveSettingsForm());
 testStatus.addEventListener('click', () => checkStatus());
@@ -453,8 +695,10 @@ testStatus.addEventListener('click', () => checkStatus());
   applyConfig(await window.desktopClaw.getConfig());
   installDragging();
   applyCursorReaction();
+  attachOptionalAudioHook();
   setState('idle');
   animationEngine.scheduleQuirk();
+  scheduleIdleActivity();
   showSpeech('DesktopClaw ready.', 1800);
   if ('onvoiceschanged' in window.speechSynthesis) {
     window.speechSynthesis.onvoiceschanged = () => {
