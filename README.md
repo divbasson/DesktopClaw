@@ -186,10 +186,6 @@ So the codebase is ready for `.exe` output, but final packaging depends on the h
 ---
 <div align="center">
   <img src="src/assets/brand/preview-notification.png" alt="DesktopClaw in action — System Ready notification" width="600" />
-</div>
-
-<div align="center">
-  <img src="src/assets/brand/logo.png" alt="DesktopClaw" width="280" />
   <br/>
   <sub>© DesktopClaw — Your Vigilant, Warm Desktop Companion</sub>
 </div>
