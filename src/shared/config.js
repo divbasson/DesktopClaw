@@ -1,13 +1,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const defaultConfigPath = path.join(__dirname, '..', '..', 'config.json');
+const defaultConfigPath = path.join(__dirname, '..', '..', 'settings.json');
 
 function getConfigPath() {
   try {
     const { app } = require('electron');
     if (app?.getPath) {
-      return path.join(app.getPath('userData'), 'config.json');
+      return path.join(app.getPath('userData'), 'settings.json');
     }
   } catch {
     // Fallback for non-Electron contexts.
