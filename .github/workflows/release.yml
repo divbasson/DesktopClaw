@@ -1,7 +1,11 @@
+
 name: Build and Release DesktopClaw
 
 on:
+  workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
 
