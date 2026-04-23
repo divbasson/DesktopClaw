@@ -16,7 +16,7 @@
 
 ## Prieview
 
-
+  <img src="src/assets/brand/prieview.gif" alt="DesktopClaw — Your Vigilant, Warm Desktop Companion" width="100%" />
 
 <br/>
 
