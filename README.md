@@ -37,12 +37,6 @@
 - Cursor-proximity reaction for a more alive idle feel
 - System tray menu for quick pet actions
 
-## Preview
-
-<div align="center">
-  <img src="src/assets/brand/preview-notification.png" alt="DesktopClaw in action — System Ready notification" width="600" />
-</div>
-
 ## Architecture
 
 ```text
@@ -190,6 +184,9 @@ So the codebase is ready for `.exe` output, but final packaging depends on the h
 5. Add click-through-on-idle behavior tuning and cursor reactions
 
 ---
+<div align="center">
+  <img src="src/assets/brand/preview-notification.png" alt="DesktopClaw in action — System Ready notification" width="600" />
+</div>
 
 <div align="center">
   <img src="src/assets/brand/logo.png" alt="DesktopClaw" width="280" />
