@@ -1,5 +1,7 @@
 # DesktopClaw
 
+[![Build and Release DesktopClaw](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml/badge.svg?branch=main&event=release)](https://github.com/divbasson/DesktopClaw/actions/workflows/release.yml)
+
 A Windows-focused desktop pet companion for OpenClaw, built as an Electron MVP.
 
 ## What this prototype does
