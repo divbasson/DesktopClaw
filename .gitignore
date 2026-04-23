@@ -3,3 +3,8 @@ dist/
 out/
 release/
 *.log
+
+# User config — contains private keys, tokens, passwords, and local IPs
+settings.json
+config.json
+.desktopclaw-runtime/
