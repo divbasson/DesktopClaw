@@ -272,13 +272,8 @@ function resumeActivityIfNeeded() {
   applyAccessoryActivity(currentActivity);
 }
 
-function setInteractiveMode(enabled) {
-  if (!config?.clickThroughWhenIdle) {
-    window.desktopClaw.setIgnoreMouse(false);
-    return;
-  }
-  const shouldIgnore = !enabled && lastState === 'idle';
-  window.desktopClaw.setIgnoreMouse(shouldIgnore);
+function setInteractiveMode(_enabled) {
+  // Click-through is now managed dynamically via the mousemove hit-test in applyCursorReaction.
 }
 
 function setState(state) {
@@ -370,6 +365,20 @@ function applyCursorReaction() {
     const cy = rect.top + rect.height / 2;
     const distance = Math.hypot(event.clientX - cx, event.clientY - cy);
     pet.classList.toggle('cursor-near', distance < 180);
+
+    // Pixel-level click-through: only capture events over actual interactive content.
+    // The window starts as passthrough (setIgnoreMouseEvents true + forward:true), so
+    // mousemove is always received even when the window ignores clicks.
+    const el = document.elementFromPoint(event.clientX, event.clientY);
+    const overInteractive = !!el?.closest(
+      '#pet, #interaction-shell, #speech-bubble, #settings-panel, #settings-toggle, #status-pill, #notification-stack'
+    );
+    // Honour clickThroughWhenIdle: when idle with no overlays, make even the pet click-through.
+    const composerOpen = !interactionShell.classList.contains('hidden');
+    const settingsOpen = !settingsPanel.classList.contains('hidden');
+    const idlePassthrough =
+      config?.clickThroughWhenIdle && lastState === 'idle' && !composerOpen && !settingsOpen;
+    window.desktopClaw?.setIgnoreMouse(!overInteractive || idlePassthrough);
   });
 
   petShell.addEventListener('mouseenter', () => {

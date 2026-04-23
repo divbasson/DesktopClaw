@@ -52,7 +52,7 @@ class UiShell {
 
     this.window.setAlwaysOnTop(this.config.alwaysOnTop, 'screen-saver');
     this.window.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    this.window.setIgnoreMouseEvents(!!this.config.clickThroughWhenIdle, { forward: true });
+    this.window.setIgnoreMouseEvents(true, { forward: true }); // renderer mousemove manages this dynamically
     const { session } = this.window.webContents;
     session.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
       const origin = requestingOrigin || details?.securityOrigin || '';
@@ -90,7 +90,7 @@ class UiShell {
     this.config = config;
     if (!this.window) return;
     this.window.setAlwaysOnTop(config.alwaysOnTop, 'screen-saver');
-    this.window.setIgnoreMouseEvents(!!config.clickThroughWhenIdle, { forward: true });
+    // setIgnoreMouseEvents is controlled dynamically by the renderer's mousemove hit-test.
   }
 
   send(channel, payload) {
