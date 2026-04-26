@@ -29,7 +29,7 @@
         "sessionKey": "main",
         "token": "",
         "password": "",
-        "timeoutMs": 15000
+        "timeoutMs": 30000
     },
     "tts": {
         "voiceName": "",
@@ -38,14 +38,14 @@
         "useSystemTts": false,
         "usePiperTts": true,
         "piperExe": "C:\\piper\\piper\\piper.exe",
-        "piperModel": "C:\\piper\\voices\\en_US-hal_6409-medium.onnx"
+        "piperModel": "F:\\DesktopClaw\\models\\piper\\voices\\cori-med.onnx"
     },
     "status": {
-        "pollEnabled": true,
+        "pollEnabled": false,
         "pollIntervalMs": 30000,
         "speakNotifications": false,
-        "showNotifications": true,
-        "nativeNotifications": true
+        "showNotifications": false,
+        "nativeNotifications": false
     },
     "idle": {
         "quirkMinSeconds": 10,

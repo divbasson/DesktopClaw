@@ -8,9 +8,10 @@ const { randomUUID, randomBytes, createHash, generateKeyPairSync, createPrivateK
 const PROTOCOL_VERSION = 3;
 const DEFAULT_SESSION_KEY = 'main';
 const DEFAULT_OPERATOR_SCOPES = ['operator.read', 'operator.write'];
+const ADMIN_OPERATOR_SCOPES = ['operator.read', 'operator.write', 'operator.admin'];
 const CHAT_HISTORY_LIMIT = 200;
 const CHAT_POLL_INTERVAL_MS = 1200;
-const CHAT_REPLY_TIMEOUT_MS = 45000;
+const CHAT_REPLY_TIMEOUT_MS = 180000;
 
 function getApp() {
   try {
@@ -437,11 +438,38 @@ function getTextFromMessage(message) {
     return message.message.trim();
   }
 
+  if (typeof message.errorMessage === 'string' && message.errorMessage.trim()) {
+    return message.errorMessage.trim();
+  }
+
   return '';
+}
+
+function getTextFromGatewayResponse(response) {
+  if (!response || typeof response !== 'object') return '';
+
+  for (const key of ['reply', 'assistant', 'message', 'result', 'data']) {
+    const value = response[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+
+    const text = getTextFromMessage(value);
+    if (text) return text;
+  }
+
+  return getTextFromMessage(response);
 }
 
 function isAssistantMessage(message) {
   return String(message?.role || '').toLowerCase() === 'assistant';
+}
+
+function isAssistantErrorMessage(message) {
+  if (!isAssistantMessage(message)) return false;
+  const stopReason = String(message?.stopReason || message?.stop_reason || '').toLowerCase();
+  const state = String(message?.state || '').toLowerCase();
+  return Boolean(message?.errorMessage) || stopReason === 'error' || state === 'error';
 }
 
 function fingerprintMessage(message) {
@@ -458,6 +486,42 @@ function isUserMessageMatch(message, expectedText, earliestTimestamp) {
   if (text !== expectedText) return false;
   const timestamp = Number(message?.timestamp || message?.createdAt || 0);
   return !earliestTimestamp || !Number.isFinite(timestamp) || timestamp >= earliestTimestamp;
+}
+
+function isSessionKeyMatch(actual, expected) {
+  const actualKey = String(actual || '');
+  const expectedKey = String(expected || '');
+  return actualKey === expectedKey || actualKey.endsWith(`:${expectedKey}`);
+}
+
+function getConfiguredScopes(config) {
+  const configured = config.gateway?.scopes;
+  if (Array.isArray(configured) && configured.length > 0) {
+    return [...new Set(configured.map((scope) => String(scope || '').trim()).filter(Boolean))];
+  }
+
+  return DEFAULT_OPERATOR_SCOPES;
+}
+
+function getModelKey(model) {
+  if (!model || typeof model !== 'object') return '';
+  const provider = String(model.provider || model.modelProvider || '').trim();
+  const id = String(model.id || model.model || '').trim();
+  if (!id) return '';
+  return provider && !id.includes('/') ? `${provider}/${id}` : id;
+}
+
+function splitModelKey(modelKey) {
+  const raw = String(modelKey || '').trim();
+  const separator = raw.indexOf('/');
+  if (separator <= 0 || separator >= raw.length - 1) {
+    return { modelProvider: '', model: raw };
+  }
+
+  return {
+    modelProvider: raw.slice(0, separator),
+    model: raw.slice(separator + 1),
+  };
 }
 
 class GatewayWebSocketClient {
@@ -494,9 +558,12 @@ class GatewayWebSocketClient {
     const configuredToken = gatewayConfig.token?.trim() || '';
     const configuredPassword = gatewayConfig.password?.trim() || '';
     const authToken = configuredToken || storedTokenEntry?.deviceToken || '';
-    const scopes = Array.isArray(storedTokenEntry?.scopes) && storedTokenEntry.scopes.length > 0
-      ? storedTokenEntry.scopes
-      : DEFAULT_OPERATOR_SCOPES;
+    const configuredScopes = getConfiguredScopes(this.config);
+    const scopes = configuredScopes.some((scope) => !storedTokenEntry?.scopes?.includes(scope))
+      ? configuredScopes
+      : Array.isArray(storedTokenEntry?.scopes) && storedTokenEntry.scopes.length > 0
+        ? storedTokenEntry.scopes
+        : DEFAULT_OPERATOR_SCOPES;
     const signedAtMs = Date.now();
     const signaturePayload = buildSignaturePayload({
       deviceId: store.deviceId,
@@ -806,7 +873,7 @@ class OpenClawClient {
     const before = await this.gatewayClient.request('chat.history', {
       sessionKey,
       limit: CHAT_HISTORY_LIMIT,
-    });
+    }).catch(() => null);
     const previousMessages = Array.isArray(before?.messages) ? before.messages : [];
     const previousAssistantFingerprints = new Set(
       previousMessages
@@ -814,12 +881,22 @@ class OpenClawClient {
         .map(fingerprintMessage),
     );
 
+    const sendStartedAt = Date.now();
     const sendResponse = await this.gatewayClient.request('chat.send', {
       sessionKey,
       message: text,
-      deliver: false,
+      deliver: this.config.gateway.deliver !== false,
       idempotencyKey: randomUUID(),
     });
+
+    const directResponseText = getTextFromGatewayResponse(sendResponse);
+    if (directResponseText) {
+      return {
+        ok: true,
+        text: directResponseText,
+        raw: sendResponse,
+      };
+    }
 
     const runId = typeof sendResponse?.runId === 'string' ? sendResponse.runId : null;
     const deadline = Date.now() + Math.max(this.config.gateway.timeoutMs || 15000, CHAT_REPLY_TIMEOUT_MS);
@@ -830,7 +907,7 @@ class OpenClawClient {
       stopListening = this.gatewayClient.subscribe((event) => {
         if (event?.event !== 'chat') return;
         const payload = event?.payload;
-        if (!payload || payload.sessionKey !== sessionKey) return;
+        if (!payload || !isSessionKeyMatch(payload.sessionKey, sessionKey)) return;
         if (runId && payload.runId && payload.runId !== runId) return;
 
         const state = String(payload.state || '').toLowerCase();
@@ -851,6 +928,11 @@ class OpenClawClient {
         }
 
         if (state === 'final') {
+          if (message && isAssistantErrorMessage(message)) {
+            reject(new Error(textFromEvent || payload.errorMessage || 'Gateway chat run failed.'));
+            return;
+          }
+
           if (message && isAssistantMessage(message)) {
             resolve({
               ok: true,
@@ -866,7 +948,14 @@ class OpenClawClient {
               text: resolvedText,
               raw: payload,
             });
+            return;
           }
+
+          resolve({
+            ok: true,
+            text: 'OpenClaw completed the request, but did not return a message.',
+            raw: payload,
+          });
         }
       });
     });
@@ -891,18 +980,30 @@ class OpenClawClient {
       const history = await this.gatewayClient.request('chat.history', {
         sessionKey,
         limit: CHAT_HISTORY_LIMIT,
-      });
+      }).catch(() => null);
       const messages = Array.isArray(history?.messages) ? history.messages : [];
       const newAssistantMessages = messages
         .filter(isAssistantMessage)
-        .filter((message) => !previousAssistantFingerprints.has(fingerprintMessage(message)));
+        .filter((message) => {
+          if (previousAssistantFingerprints.size > 0) {
+            return !previousAssistantFingerprints.has(fingerprintMessage(message));
+          }
+
+          const timestamp = Number(message?.timestamp || message?.createdAt || message?.created_at || 0);
+          return Number.isFinite(timestamp) && timestamp >= sendStartedAt - 1000;
+        });
 
       if (newAssistantMessages.length > 0) {
         const latestAssistant = newAssistantMessages[newAssistantMessages.length - 1];
         stopListening?.();
+        const latestText = getTextFromMessage(latestAssistant);
+        if (isAssistantErrorMessage(latestAssistant)) {
+          throw new Error(latestText || 'Gateway chat run failed.');
+        }
+
         return {
           ok: true,
-          text: getTextFromMessage(latestAssistant) || 'OpenClaw replied, but no text content was returned.',
+          text: latestText || 'OpenClaw replied, but no text content was returned.',
           raw: latestAssistant,
         };
       }
@@ -910,6 +1011,109 @@ class OpenClawClient {
 
     stopListening?.();
     throw new Error('OpenClaw accepted the message, but no assistant reply arrived before timeout.');
+  }
+
+  async listModels() {
+    if (this.config.gateway.mode === 'mock') {
+      return {
+        ok: true,
+        models: [
+          {
+            id: 'mock-model',
+            name: 'Mock Model',
+            provider: 'mock',
+            key: 'mock/mock-model',
+          },
+        ],
+      };
+    }
+
+    const response = await this.gatewayClient.request('models.list', {});
+    const models = Array.isArray(response?.models) ? response.models : [];
+    return {
+      ok: true,
+      models: models
+        .map((model) => ({
+          ...model,
+          key: getModelKey(model),
+        }))
+        .filter((model) => model.key),
+      raw: response,
+    };
+  }
+
+  async getSessionModel() {
+    if (this.config.gateway.mode === 'mock') {
+      return {
+        ok: true,
+        sessionKey: this.config.gateway.sessionKey || DEFAULT_SESSION_KEY,
+        modelProvider: 'mock',
+        model: 'mock-model',
+        modelKey: 'mock/mock-model',
+      };
+    }
+
+    const sessionKey = this.config.gateway.sessionKey || DEFAULT_SESSION_KEY;
+    const response = await this.gatewayClient.request('sessions.list', {});
+    const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
+    const session = sessions.find((row) => isSessionKeyMatch(row?.key, sessionKey)) || null;
+    const defaults = response?.defaults || {};
+    const modelProvider = String(session?.modelProvider || defaults.modelProvider || '').trim();
+    const model = String(session?.model || defaults.model || '').trim();
+    return {
+      ok: true,
+      sessionKey: session?.key || sessionKey,
+      modelProvider,
+      model,
+      modelKey: modelProvider && model ? `${modelProvider}/${model}` : model,
+      session,
+      defaults,
+    };
+  }
+
+  async setSessionModel(modelKey) {
+    if (this.config.gateway.mode === 'mock') {
+      return {
+        ok: true,
+        modelKey: modelKey || 'mock/mock-model',
+        raw: { mock: true },
+      };
+    }
+
+    const sessionKey = this.config.gateway.sessionKey || DEFAULT_SESSION_KEY;
+    const { modelProvider, model } = splitModelKey(modelKey);
+    if (!model) {
+      throw new Error('No OpenClaw model was selected.');
+    }
+
+    const params = {
+      sessionKey,
+      ...(modelProvider ? { modelProvider } : {}),
+      model,
+    };
+    const methods = ['sessions.setModel', 'sessions.update', 'chat.setModel'];
+    const errors = [];
+
+    for (const method of methods) {
+      try {
+        const raw = await this.gatewayClient.request(method, params);
+        return {
+          ok: true,
+          modelProvider,
+          model,
+          modelKey: modelProvider ? `${modelProvider}/${model}` : model,
+          method,
+          raw,
+        };
+      } catch (error) {
+        errors.push(`${method}: ${error.message}`);
+        if (/missing scope|scope upgrade|pairing approval/i.test(error.message)) {
+          throw error;
+        }
+      }
+    }
+
+    throw new Error(errors.join(' ; '));
   }
 
   async getStatus() {
@@ -953,4 +1157,4 @@ class OpenClawClient {
   }
 }
 
-module.exports = { OpenClawClient };
+module.exports = { OpenClawClient, ADMIN_OPERATOR_SCOPES };

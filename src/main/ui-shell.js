@@ -32,6 +32,7 @@ class UiShell {
     const position = getWindowPosition(display.workArea, this.config.window);
 
     this.window = new BrowserWindow({
+      title: 'DesktopClaw',
       width: this.config.window.width,
       height: this.config.window.height,
       x: position.x,
@@ -41,7 +42,7 @@ class UiShell {
       resizable: false,
       hasShadow: false,
       alwaysOnTop: this.config.alwaysOnTop,
-      skipTaskbar: false,
+      skipTaskbar: true,
       icon: path.join(__dirname, '..', 'assets', 'openclaw.ico'),
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
@@ -51,6 +52,7 @@ class UiShell {
     });
 
     this.window.setAlwaysOnTop(this.config.alwaysOnTop, 'screen-saver');
+    this.window.setSkipTaskbar(true);
     this.window.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
     this.window.setIgnoreMouseEvents(true, { forward: true }); // renderer mousemove manages this dynamically
     const { session } = this.window.webContents;
@@ -102,6 +104,13 @@ class UiShell {
     if (!this.window) return;
     if (this.window.isVisible()) this.window.hide();
     else this.window.show();
+  }
+
+  showAndFocus() {
+    if (!this.window) return;
+    if (this.window.isMinimized()) this.window.restore();
+    this.window.show();
+    this.window.focus();
   }
 
   setIgnoreMouseEvents(ignore) {

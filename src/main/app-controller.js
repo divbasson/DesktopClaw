@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const { ConfigStore } = require('./config-store');
 const { UiShell } = require('./ui-shell');
 const { ShortcutManager } = require('./shortcut-manager');
-const { OpenClawClient } = require('./openclaw-client');
+const { OpenClawClient, ADMIN_OPERATOR_SCOPES } = require('./openclaw-client');
 const { TrayManager } = require('./tray-manager');
 const { Notifier } = require('./notifier');
 const { NativeSttService } = require('./native-stt');
@@ -29,7 +29,9 @@ class AppController {
       onToggleMute: () => this.setConfig({ ...this.config, mute: !this.config.mute }),
       onToggleVisibility: () => this.uiShell.toggleVisibility(),
       onOpenSettings: () => this.uiShell.send('settings:open'),
-      onCheckStatus: () => this.uiShell.send('shortcut:status'),
+      onCheckStatus: () => this.refreshGatewayStatus({ notifyRenderer: true }),
+      onRefreshModels: () => this.refreshModels({ notifyRenderer: true }),
+      onSelectModel: (modelKey) => this.selectOpenClawModel(modelKey),
       onQuit: () => this.destroy(),
     });
   }
@@ -39,6 +41,9 @@ class AppController {
     this.shortcutManager.register(this.config);
     this.trayManager.create(this.config);
     this.bindIpc();
+    this.refreshModels({ silent: true }).catch((error) => {
+      logError('openclaw-models', 'Initial model refresh failed', error);
+    });
     logInfo('app-controller', 'Controller initialized');
   }
 
@@ -52,7 +57,13 @@ class AppController {
       piperExe: this.config.tts?.piperExe || '',
       modelPath: this.config.tts?.piperModel || '',
     })));
-    ipcMain.handle('pet:status', async () => this.safeCall(() => this.client.getStatus()));
+    ipcMain.handle('pet:status', async () => this.getGatewayStatus());
+    ipcMain.handle('models:list', async () => this.refreshModels({ notifyRenderer: false }));
+    ipcMain.handle('models:set-current', async (_event, modelKey) => this.selectOpenClawModel(modelKey));
+    ipcMain.handle('audio:set-active', (_event, active) => {
+      this.uiShell.send('audio:active', !!active);
+      return true;
+    });
     ipcMain.handle('window:set-ignore-mouse', (_event, ignore) => this.uiShell.setIgnoreMouseEvents(ignore));
     ipcMain.handle('window:drag', (_event, delta) => this.uiShell.dragBy(delta));
     ipcMain.handle('notify:show', (_event, payload) => {
@@ -81,6 +92,162 @@ class AppController {
     this.trayManager.setMenu(this.config);
     this.uiShell.send('config:updated', this.config);
     return this.config;
+  }
+
+  summarizeGatewayStatus(result) {
+    const mode = this.config?.gateway?.mode || 'unknown';
+    if (!result?.ok) {
+      return {
+        state: 'offline',
+        summary: 'Gateway: offline',
+        detail: result?.error || 'Status check failed.',
+        checkedAt: Date.now(),
+      };
+    }
+
+    const data = result.data || {};
+    const sessions = data.sessions != null ? `${data.sessions} sessions` : null;
+    const agents = data.agents != null ? `${data.agents} agents` : null;
+    const counts = [sessions, agents].filter(Boolean).join(', ');
+    const status = data.status || (mode === 'mock' ? 'mock-online' : 'online');
+    return {
+      state: 'online',
+      summary: `Gateway: ${status}`,
+      detail: counts || `Mode: ${mode}`,
+      checkedAt: Date.now(),
+    };
+  }
+
+  async getGatewayStatus() {
+    const result = await this.safeCall(() => this.client.getStatus());
+    this.trayManager.setGatewayStatus(this.summarizeGatewayStatus(result));
+    return result;
+  }
+
+  async refreshGatewayStatus({ notifyRenderer = false, silent = false } = {}) {
+    const result = await this.getGatewayStatus();
+    if (notifyRenderer) {
+      this.uiShell.send('gateway:status', { ...result, fromTray: true });
+    }
+    if (!silent) {
+      logInfo('gateway-status', 'Gateway status refreshed', result);
+    }
+    return result;
+  }
+
+  summarizeModelError(error) {
+    const message = error?.message || String(error || 'Model operation failed.');
+    if (/scope upgrade|pairing approval/i.test(message)) {
+      return 'Needs gateway admin approval';
+    }
+    if (/missing scope/i.test(message)) {
+      return 'Needs operator.admin scope';
+    }
+    return message;
+  }
+
+  async refreshModels({ notifyRenderer = false, silent = false } = {}) {
+    this.trayManager.setModelState({ loading: true, error: '' });
+    try {
+      const [models, current] = await Promise.all([
+        this.client.listModels(),
+        this.client.getSessionModel(),
+      ]);
+      const state = {
+        loading: false,
+        models: models.models || [],
+        current,
+        error: '',
+        checkedAt: Date.now(),
+      };
+      this.trayManager.setModelState(state);
+      if (notifyRenderer) {
+        this.uiShell.send('gateway:status', {
+          ok: true,
+          fromTray: true,
+          data: {
+            status: 'models-loaded',
+            models: state.models.length,
+            model: current.modelKey,
+          },
+        });
+      }
+      if (!silent) {
+        logInfo('openclaw-models', 'OpenClaw models refreshed', {
+          count: state.models.length,
+          current: current.modelKey,
+        });
+      }
+      return { ok: true, models: state.models, current };
+    } catch (error) {
+      const summary = this.summarizeModelError(error);
+      this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });
+      logError('openclaw-models', 'OpenClaw model refresh failed', error);
+      return { ok: false, error: summary };
+    }
+  }
+
+  async selectOpenClawModel(modelKey) {
+    const adminConfig = {
+      ...this.config,
+      gateway: {
+        ...(this.config.gateway || {}),
+        scopes: ADMIN_OPERATOR_SCOPES,
+      },
+    };
+    this.trayManager.setModelState({ loading: true, error: '' });
+    const adminClient = new OpenClawClient(adminConfig);
+    const result = await this.safeCall(async () => {
+      try {
+        return await adminClient.setSessionModel(modelKey);
+      } finally {
+        adminClient.close();
+      }
+    });
+    if (!result?.ok) {
+      const summary = this.summarizeModelError(new Error(result?.error || 'Failed to set OpenClaw model.'));
+      this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });
+      this.uiShell.send('gateway:status', {
+        ok: false,
+        fromTray: true,
+        error: summary,
+      });
+      return { ok: false, error: summary };
+    }
+
+    const selected = {
+      modelKey: result.modelKey,
+      modelProvider: result.modelProvider,
+      model: result.model,
+    };
+    this.setConfig({
+      ...this.config,
+      gateway: {
+        ...(this.config.gateway || {}),
+        scopes: ADMIN_OPERATOR_SCOPES,
+        modelProvider: result.modelProvider,
+        model: result.model,
+      },
+    });
+    this.trayManager.setModelState({
+      loading: false,
+      current: selected,
+      error: '',
+      checkedAt: Date.now(),
+    });
+    logInfo('openclaw-models', 'OpenClaw session model selected', {
+      model: result.modelKey,
+      method: result.method,
+    });
+    this.uiShell.send('gateway:status', {
+      ok: true,
+      fromTray: true,
+      data: {
+        status: 'model-selected',
+        model: result.modelKey,
+      },
+    });
+    return result;
   }
 
   async safeCall(fn) {
