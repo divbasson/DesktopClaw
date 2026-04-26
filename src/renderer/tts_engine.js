@@ -12,6 +12,11 @@ export class TtsEngine {
     this.config = config;
   }
 
+  setAudioActive(active) {
+    const promise = window.desktopClaw?.setAudioActive?.(active);
+    if (promise?.catch) promise.catch(() => {});
+  }
+
   async speak(text) {
     if (this.config.mute) return;
 
@@ -34,6 +39,7 @@ export class TtsEngine {
     utterance.volume = this.config.volume;
 
     this.onStart?.();
+    this.setAudioActive(true);
     this.animationEngine.animateSpeechText(value);
 
     let fallbackTimer = null;
@@ -66,11 +72,13 @@ export class TtsEngine {
         clearInterval(fallbackTimer);
         pushProgress(totalChars);
         this.animationEngine.stopSpeechAnimation();
+        this.setAudioActive(false);
         this.onEnd?.();
       },
       () => {
         clearInterval(fallbackTimer);
         this.animationEngine.stopSpeechAnimation();
+        this.setAudioActive(false);
         this.onError?.();
       },
     );
@@ -79,6 +87,7 @@ export class TtsEngine {
   async _speakPiper(text) {
     const value = String(text || '');
     this.onStart?.();
+    this.setAudioActive(true);
     this.animationEngine.animateSpeechText(value);
 
     try {
@@ -109,6 +118,7 @@ export class TtsEngine {
       URL.revokeObjectURL(url);
     } finally {
       this.animationEngine.stopSpeechAnimation();
+      this.setAudioActive(false);
       this.onEnd?.();
     }
   }

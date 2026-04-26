@@ -18,6 +18,8 @@
   --face-soft: rgba(255, 233, 228, 0.16);
   --eye-deep: #061a24;
   --eye-mid: #0f3241;
+  --visor: rgba(48, 16, 24, 0.38);
+  --visor-edge: rgba(255, 196, 188, 0.28);
   --brow: #962b23;
   --prop-dark: #2a2e39;
   --prop-mid: #3a4253;
@@ -54,38 +56,15 @@ body {
   left: 50%;
   top: 48%;
   transform: translate(-50%, -50%);
-  width: min(240px, calc(100% - 20px));
-  height: 256px;
+  width: min(280px, calc(100% - 20px));
+  height: 286px;
   display: flex;
   align-items: center;
   justify-content: center;
   isolation: isolate;
 }
 
-#ambient-orbs {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.orb {
-  position: absolute;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.18);
-  filter: blur(1px);
-  opacity: 0;
-}
-
-.state-idle .orb {
-  animation: orbFloat 8s ease-in-out infinite;
-}
-
-.orb-a { left: 42px; top: 64px; animation-delay: 0s; }
-.orb-b { right: 48px; top: 88px; animation-delay: 2.3s; }
-.orb-c { left: 50%; bottom: 70px; animation-delay: 4.1s; }
+#ambient-orbs { display: none; }
 
 #pet-shell::before,
 #pet-shell::after {
@@ -116,19 +95,21 @@ body {
   left: 50%;
   top: 48%;
   transform: translate(-50%, -50%);
-  width: 176px;
-  height: 176px;
+  width: 228px;
+  height: 228px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(255,255,255,0.24), transparent 66%);
-  filter: blur(14px);
-  opacity: 0.5;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(255, 214, 208, 0.34) 0 18%, rgba(255, 92, 78, 0.26) 34%, transparent 64%),
+    radial-gradient(circle at 50% 50%, rgba(98,221,255,0.22), transparent 72%);
+  filter: blur(13px) saturate(1.2);
+  opacity: 0.58;
   transition: opacity 280ms ease, background 280ms ease;
   pointer-events: none;
 }
 
 .state-idle #pet-glow {
   opacity: 0.42;
-  animation: idleGlow 5.2s ease-in-out infinite;
+  animation: idleGlow 5.2s ease-in-out infinite, haloTurn 12s linear infinite;
 }
 .state-listening  #pet-glow {
   background: radial-gradient(circle, rgba(98,221,255,0.68), transparent 62%);
@@ -153,22 +134,34 @@ body {
 
 #pet {
   position: relative;
-  width: 152px;
-  height: 194px;
+  width: 228px;
+  height: 228px;
   cursor: grab;
+  background: url("../assets/sprites/openclaw_agent_sprite.png") center / contain no-repeat;
   animation:
-    floatIdle 3.4s ease-in-out infinite,
-    microDrift 6.2s ease-in-out infinite;
+    floatIdle 3.6s ease-in-out infinite,
+    petBreathe 4.4s ease-in-out infinite;
   z-index: 2;
   transform-origin: center 72%;
   will-change: transform, filter;
+  filter:
+    drop-shadow(0 16px 18px rgba(26, 6, 4, 0.22))
+    drop-shadow(0 0 18px rgba(255, 91, 79, 0.28));
 }
 
 #pet.dragging { cursor: grabbing; }
 
+#pet > :not(#pet-accessories) {
+  display: none !important;
+}
+
+#pet-accessories {
+  display: none !important;
+}
+
 #pet::before,
 #pet::after {
-  content: '';
+  content: none;
   position: absolute;
   top: calc(48% - 6px);
   left: calc(50% - 6px);
@@ -184,12 +177,12 @@ body {
 }
 
 .state-thinking #pet::before {
-  opacity: 1;
-  animation: orbitCW 1.8s linear infinite;
+  opacity: 0;
+  animation: none;
 }
 .state-thinking #pet::after {
-  opacity: 0.7;
-  animation: orbitCW 1.8s linear infinite;
+  opacity: 0;
+  animation: none;
   animation-delay: -0.9s;
   width: 8px;
   height: 8px;
@@ -207,40 +200,65 @@ body {
 
 .body {
   position: absolute;
-  left: 20px;
-  top: 22px;
-  width: 112px;
-  height: 142px;
-  border-radius: 47% 47% 45% 45% / 42% 42% 54% 54%;
+  left: 19px;
+  top: 24px;
+  width: 120px;
+  height: 145px;
+  border-radius: 50% 50% 43% 43% / 40% 40% 58% 58%;
   background:
-    radial-gradient(circle at 30% 18%, rgba(255,255,255,0.30) 0%, transparent 24%),
-    radial-gradient(circle at 28% 28%, var(--pet-light) 0%, var(--pet-mid) 26%, var(--pet) 47%, var(--pet-dark) 74%, var(--pet-deeper) 100%);
+    radial-gradient(ellipse at 33% 16%, rgba(255,255,255,0.52) 0 11%, transparent 28%),
+    radial-gradient(ellipse at 24% 28%, rgba(255,177,163,0.42) 0 22%, transparent 40%),
+    linear-gradient(148deg, rgba(255,255,255,0.22), transparent 30%),
+    radial-gradient(circle at 34% 30%, var(--pet-light) 0%, var(--pet-mid) 23%, var(--pet) 48%, var(--pet-dark) 76%, var(--pet-deeper) 100%);
   box-shadow:
-    inset -10px -14px 0 rgba(0,0,0,0.14),
-    inset 6px 6px 16px rgba(255,255,255,0.11),
-    0 8px 26px rgba(180, 40, 30, 0.34),
-    0 2px 6px rgba(0,0,0,0.20);
+    inset -15px -18px 0 rgba(103, 13, 10, 0.18),
+    inset 9px 10px 20px rgba(255,255,255,0.15),
+    inset 0 0 0 1px rgba(255,255,255,0.16),
+    0 16px 34px rgba(180, 40, 30, 0.36),
+    0 0 30px rgba(255, 91, 79, 0.16),
+    0 4px 10px rgba(0,0,0,0.24);
   overflow: hidden;
 }
 
 .body::before {
   content: '';
   position: absolute;
-  top: 14px;
-  left: 14px;
-  width: 44px;
-  height: 22px;
-  background: radial-gradient(ellipse, rgba(255,255,255,0.34) 0%, transparent 70%);
+  top: 13px;
+  left: 16px;
+  width: 48px;
+  height: 30px;
+  background: radial-gradient(ellipse, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.16) 36%, transparent 72%);
+  border-radius: 50% 46% 48% 48%;
+  transform: rotate(-19deg);
+}
+
+.body::after {
+  content: '';
+  position: absolute;
+  right: -10px;
+  bottom: 14px;
+  width: 52px;
+  height: 78px;
   border-radius: 50%;
-  transform: rotate(-18deg);
+  background: radial-gradient(ellipse, rgba(107, 18, 16, 0.22), transparent 66%);
+  transform: rotate(-12deg);
 }
 
 .face-mask {
   position: absolute;
-  inset: 12px 16px 20px;
-  border-radius: 42% 42% 48% 48% / 38% 38% 52% 52%;
-  background: radial-gradient(circle at 50% 36%, rgba(255,255,255,0.08), transparent 60%);
-  mix-blend-mode: screen;
+  left: 18px;
+  top: 32px;
+  width: 84px;
+  height: 58px;
+  border-radius: 38px 38px 30px 30px / 30px 30px 28px 28px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.08), transparent 32%),
+    radial-gradient(ellipse at 50% 36%, rgba(73, 22, 30, 0.44), var(--visor) 70%);
+  box-shadow:
+    inset 0 0 0 1px var(--visor-edge),
+    inset 0 -12px 20px rgba(45, 4, 8, 0.16),
+    0 6px 10px rgba(95, 18, 14, 0.10);
+  mix-blend-mode: multiply;
   pointer-events: none;
 }
 
@@ -258,20 +276,24 @@ body {
 
 .eye {
   position: absolute;
-  top: 42px;
-  width: 22px;
-  height: 26px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 38% 32%, var(--eye-mid), var(--eye-deep));
+  top: 43px;
+  width: 24px;
+  height: 29px;
+  border-radius: 48% 48% 52% 52%;
+  background:
+    radial-gradient(circle at 38% 32%, rgba(176,249,255,0.95) 0 9%, transparent 10%),
+    radial-gradient(circle at 44% 44%, #42dbf5 0 34%, #0c6e8a 58%, var(--eye-deep) 100%);
   box-shadow:
-    0 0 0 2.5px rgba(0,0,0,0.12),
-    inset 0 2px 4px rgba(0,0,0,0.4);
+    0 0 0 2px rgba(9, 24, 31, 0.32),
+    0 0 10px rgba(80, 210, 255, 0.32),
+    inset 0 2px 4px rgba(0,0,0,0.4),
+    inset 0 -6px 9px rgba(64,214,245,0.24);
   overflow: hidden;
   animation: blink 6.2s infinite;
   transform-origin: center;
 }
-.eye-left  { left: 22px; }
-.eye-right { right: 22px; }
+.eye-left  { left: 25px; }
+.eye-right { right: 25px; }
 
 .eye::after {
   content: '';
@@ -286,13 +308,13 @@ body {
 
 .pupil {
   position: absolute;
-  left: 6px;
-  top: 6px;
-  width: 10px;
-  height: 10px;
+  left: 7px;
+  top: 7px;
+  width: 9px;
+  height: 12px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #b3f4ff, #40d6f5 60%, #17a9ca 100%);
-  box-shadow: 0 0 0 2.5px rgba(80, 210, 255, 0.22), 0 0 6px rgba(80,200,255,0.35);
+  background: radial-gradient(ellipse at 35% 35%, #e9fdff, #6de7ff 48%, #18a7c5 100%);
+  box-shadow: 0 0 0 2px rgba(80, 210, 255, 0.18), 0 0 12px rgba(80,200,255,0.62);
   transition: transform 200ms ease;
 }
 
@@ -335,20 +357,20 @@ body {
 
 .mouth {
   position: absolute;
-  left: 42px;
-  top: 84px;
+  left: 48px;
+  top: 88px;
   width: 24px;
-  height: 10px;
-  border-bottom: 3px solid #7a1e18;
+  height: 9px;
+  border-bottom: 3px solid rgba(93, 17, 13, 0.88);
   border-radius: 0 0 18px 18px;
   transition: all 80ms cubic-bezier(0.34, 1.4, 0.64, 1);
   transform-origin: center 40%;
 }
 .mouth.mid {
-  width: 28px;
-  height: 19px;
-  top: 78px;
-  left: 40px;
+  width: 30px;
+  height: 18px;
+  top: 81px;
+  left: 45px;
   border: 3px solid #8a2218;
   background: radial-gradient(circle at 50% 35%, #882010, #5a0f0a);
   border-radius: 40% 40% 52% 52%;
@@ -356,8 +378,8 @@ body {
 .mouth.open {
   width: 32px;
   height: 34px;
-  top: 72px;
-  left: 38px;
+  top: 75px;
+  left: 44px;
   border: 3px solid #8a2218;
   background: radial-gradient(ellipse at 50% 30%, #8a1a10 0%, #350505 60%, #1e0202 100%);
   border-radius: 44% 44% 58% 58%;
@@ -372,14 +394,14 @@ body {
 }
 
 .arm {
-  top: 74px;
-  width: 28px;
-  height: 46px;
+  top: 78px;
+  width: 30px;
+  height: 48px;
   border-radius: 48%;
   transform-origin: 50% 16%;
 }
-.arm-left  { left: 0;  transform: rotate(12deg); }
-.arm-right { right: 0; transform: rotate(-12deg); }
+.arm-left  { left: 1px;  transform: rotate(16deg); }
+.arm-right { right: 1px; transform: rotate(-16deg); }
 
 .foot {
   bottom: 2px;
@@ -392,9 +414,9 @@ body {
 .foot-right { right: 34px; }
 
 .antenna {
-  top: 4px;
-  width: 4px;
-  height: 34px;
+  top: 3px;
+  width: 5px;
+  height: 36px;
   border-radius: 999px;
   transform-origin: bottom center;
   transition: box-shadow 300ms ease;
@@ -402,17 +424,17 @@ body {
 .antenna::after {
   content: '';
   position: absolute;
-  top: -8px;
-  left: -4px;
-  width: 12px;
-  height: 12px;
+  top: -9px;
+  left: -5px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: inherit;
   box-shadow: inherit;
   transition: transform 300ms ease, box-shadow 300ms ease;
 }
-.antenna-left  { left: 48px;  transform: rotate(-20deg); }
-.antenna-right { right: 48px; transform: rotate(20deg); }
+.antenna-left  { left: 50px;  transform: rotate(-22deg); }
+.antenna-right { right: 50px; transform: rotate(22deg); }
 
 .state-listening .antenna {
   box-shadow: 0 0 0 2px rgba(89,215,255,0.4), 0 0 14px rgba(89,215,255,0.9);
@@ -440,12 +462,12 @@ body {
 
 #shadow {
   position: absolute;
-  bottom: 30px;
-  width: 112px;
-  height: 18px;
+  bottom: 20px;
+  width: 142px;
+  height: 22px;
   border-radius: 50%;
-  background: rgba(0,0,0,0.20);
-  filter: blur(5px);
+  background: radial-gradient(ellipse, rgba(255, 82, 72, 0.42), rgba(125, 15, 13, 0.18) 48%, transparent 72%);
+  filter: blur(7px);
   transition: transform 300ms ease, opacity 300ms ease;
   z-index: 1;
 }
@@ -523,7 +545,9 @@ input, select {
 
 #status-pill,
 #notification-stack,
-#settings-toggle { display: none; }
+#settings-toggle {
+  display: none;
+}
 
 #interaction-shell {
   position: absolute;
@@ -583,16 +607,24 @@ input, select {
 .hidden { display: none !important; }
 
 .state-listening #pet {
-  animation: listenBob 1.25s ease-in-out infinite;
+  animation: listenBob 1.12s ease-in-out infinite;
+  filter:
+    drop-shadow(0 16px 18px rgba(26, 6, 4, 0.22))
+    drop-shadow(0 0 18px rgba(255, 91, 79, 0.32))
+    drop-shadow(0 0 18px rgba(98, 221, 255, 0.52));
 }
 .state-thinking #pet {
-  animation: thinkPulse 2.1s ease-in-out infinite;
+  animation: thinkPulse 1.9s ease-in-out infinite;
+  filter:
+    drop-shadow(0 16px 18px rgba(26, 6, 4, 0.22))
+    drop-shadow(0 0 20px rgba(172, 142, 255, 0.5));
 }
 .state-speaking #pet {
-  animation: floatIdle 0.9s ease-in-out infinite;
-}
-.state-speaking .body {
-  animation: speakSquish 0.34s ease-in-out infinite;
+  animation: speakingHover 0.84s ease-in-out infinite;
+  filter:
+    drop-shadow(0 16px 18px rgba(26, 6, 4, 0.22))
+    drop-shadow(0 0 18px rgba(146, 255, 138, 0.38))
+    drop-shadow(0 0 14px rgba(255, 91, 79, 0.3));
 }
 .state-error #pet {
   animation: errorShake 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
@@ -865,8 +897,12 @@ input, select {
 button, input, select { font: inherit; }
 
 @keyframes floatIdle {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-7px); }
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-7px) rotate(-0.8deg); }
+}
+@keyframes petBreathe {
+  0%, 100% { scale: 1; }
+  50% { scale: 1.018 0.992; }
 }
 @keyframes microDrift {
   0%, 100% { filter: drop-shadow(0 0 0 transparent); }
@@ -876,19 +912,28 @@ button, input, select { font: inherit; }
   0%, 100% { opacity: 0.35; transform: translate(-50%, -50%) scale(0.98); }
   50% { opacity: 0.55; transform: translate(-50%, -50%) scale(1.03); }
 }
+@keyframes haloTurn {
+  from { rotate: 0deg; }
+  to { rotate: 360deg; }
+}
 @keyframes listenBob {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  30% { transform: translateY(-5px) rotate(-1.4deg); }
-  70% { transform: translateY(-3px) rotate(1.4deg); }
+  0%, 100% { transform: translateY(0) scale(1) rotate(0deg); }
+  32% { transform: translateY(-6px) scale(1.018) rotate(-1.4deg); }
+  70% { transform: translateY(-3px) scale(1.006) rotate(1.4deg); }
 }
 @keyframes thinkPulse {
-  0%, 100% { transform: translateY(0) scale(1); }
-  40% { transform: translateY(-4px) scale(1.012); }
-  70% { transform: translateY(-2px) scale(0.996); }
+  0%, 100% { transform: translateY(0) scale(1) rotate(0deg); }
+  38% { transform: translateY(-4px) scale(1.016) rotate(-1deg); }
+  70% { transform: translateY(-2px) scale(0.998) rotate(1deg); }
+}
+@keyframes speakingHover {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  35% { transform: translateY(-5px) rotate(1.1deg); }
+  70% { transform: translateY(-2px) rotate(-0.8deg); }
 }
 @keyframes speakSquish {
-  0%, 100% { transform: scaleY(1) scaleX(1); }
-  45% { transform: scaleY(1.04) scaleX(0.97); }
+  0%, 100% { transform: scaleY(1) scaleX(1); filter: brightness(1); }
+  45% { transform: scaleY(1.035) scaleX(0.98); filter: brightness(1.04); }
 }
 @keyframes hop {
   0%, 100% { transform: translateY(0) scaleY(1) scaleX(1); }

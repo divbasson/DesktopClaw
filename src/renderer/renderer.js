@@ -79,6 +79,31 @@ const animationEngine = new AnimationEngine({
 const uiShell = new RendererUiShell({ bubble, settingsPanel, fields });
 const openclawClient = new RendererOpenClawClient();
 
+class AudioCuePlayer {
+  constructor() {
+    this.start = new Audio('../assets/audio/start.mp3');
+    this.stop = new Audio('../assets/audio/stop.mp3');
+    for (const audio of [this.start, this.stop]) {
+      audio.preload = 'auto';
+      audio.volume = 0.62;
+    }
+  }
+
+  play(which) {
+    if (config?.mute) return;
+    const audio = which === 'stop' ? this.stop : this.start;
+    audio.currentTime = 0;
+    audio.play().catch((error) => {
+      reportRuntimeIssue(`Unable to play ${which} listening cue`, {
+        name: error?.name,
+        message: error?.message,
+      }, 'info');
+    });
+  }
+}
+
+const audioCuePlayer = new AudioCuePlayer();
+
 function reportRuntimeIssue(message, details = null, level = 'error') {
   window.desktopClaw.logMessage({
     scope: 'renderer-runtime',
@@ -328,6 +353,25 @@ function showSpeech(text, timeoutMs = 8000) {
   uiShell.setBubble(text, timeoutMs);
 }
 
+function handleGatewayStatus(result) {
+  if (!result?.ok) {
+    if (result?.fromTray) {
+      setState('error');
+      showSpeech(`Status failed: ${result.error}`, 4200);
+      setTimeout(() => setState('idle'), 900);
+    }
+    return;
+  }
+  const data = result.data || {};
+  const summary = data.sessions != null
+    ? `${data.status || 'online'} · ${data.sessions} sessions`
+    : data.status || 'online';
+  if (result.fromTray) {
+    showSpeech(summary, 3200);
+    setState('idle');
+  }
+}
+
 const ttsEngine = new TtsEngine({
   config: {},
   animationEngine,
@@ -371,7 +415,7 @@ function applyCursorReaction() {
     // mousemove is always received even when the window ignores clicks.
     const el = document.elementFromPoint(event.clientX, event.clientY);
     const overInteractive = !!el?.closest(
-      '#pet, #interaction-shell, #speech-bubble, #settings-panel, #settings-toggle, #status-pill, #notification-stack'
+      '#pet, #interaction-shell, #speech-bubble, #settings-panel'
     );
     // Honour clickThroughWhenIdle: when idle with no overlays, make even the pet click-through.
     const composerOpen = !interactionShell.classList.contains('hidden');
@@ -516,6 +560,7 @@ async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
   voiceCaptureInFlight = true;
 
   const shouldResumeWake = !!config?.wakeWordEnabled;
+  let listeningCueStarted = false;
   wakeWordEngine.stop();
 
   try {
@@ -531,11 +576,15 @@ async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
     }
 
     showSpeech(source === 'wake' ? 'Yes? I am listening.' : 'Listening...', 2200);
+    audioCuePlayer.play('start');
+    listeningCueStarted = true;
 
     const result = await window.desktopClaw.listenNativeOnce({
       timeoutSeconds: 8,
       silenceSeconds: 2,
     });
+    audioCuePlayer.play('stop');
+    listeningCueStarted = false;
 
     const transcript = String(result?.text || '').trim();
     if (!result?.ok || !transcript) {
@@ -566,6 +615,9 @@ async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
       animationEngine.scheduleQuirk();
     }, 900);
   } finally {
+    if (listeningCueStarted) {
+      audioCuePlayer.play('stop');
+    }
     voiceCaptureInFlight = false;
     if (shouldResumeWake) {
       wakeWordEngine.start();
@@ -591,6 +643,7 @@ async function saveSettingsForm() {
 async function checkStatus() {
   setState('thinking');
   const status = await openclawClient.getStatus();
+  handleGatewayStatus(status);
   if (!status.ok) {
     setState('error');
     showSpeech(`Status failed: ${status.error}`, 4200);
@@ -658,6 +711,7 @@ window.desktopClaw.onShortcutListen(() => {
   captureVoiceCommand('hotkey');
 });
 window.desktopClaw.onShortcutStatus(() => checkStatus());
+window.desktopClaw.onGatewayStatus?.((status) => handleGatewayStatus(status));
 window.desktopClaw.onSettingsOpen(() => {
   setInteractiveMode(true);
   uiShell.toggleSettings(true);
