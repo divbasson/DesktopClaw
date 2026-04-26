@@ -12,10 +12,6 @@
 [![CodeQL](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql)
 
 
-Complete redesign in v0.0.10 - Please see releases for list of changes. 
-
-<img width="426" height="240" alt="Video Project 21" src="https://github.com/user-attachments/assets/6b33c7ee-3b7a-4f0d-aaae-93f3c25abcc2" />
-
 
   *A Windows desktop pet companion powered by OpenClaw.*
 </div>
@@ -23,6 +19,10 @@ Complete redesign in v0.0.10 - Please see releases for list of changes.
 ## Prieview
 
   <img src="src/assets/brand/prievew.gif"/>
+
+  Complete redesign in v0.0.10 - Please see releases for list of changes. 
+
+<img width="426" height="240" alt="Video Project 21" src="https://github.com/user-attachments/assets/6b33c7ee-3b7a-4f0d-aaae-93f3c25abcc2" />
 
 <br/>
 
