@@ -22,7 +22,7 @@
 
   Complete redesign in v0.0.10 - Please see releases for list of changes. 
 
-<img width="426" height="240" alt="Video Project 21" src="https://github.com/user-attachments/assets/6b33c7ee-3b7a-4f0d-aaae-93f3c25abcc2" />
+<img width="240" height="300" alt="Video Project 21 (1)" src="https://github.com/user-attachments/assets/6a167d9e-c02a-45a0-a6ad-8459d6400dba" />
 
 <br/>
 
