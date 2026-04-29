@@ -1,201 +1,349 @@
+<a id="readme-top"></a>
+
+[![CodeQL][codeql-shield]][codeql-url]
+[![GitHub release][release-shield]][release-url]
+[![GitHub issues][issues-shield]][issues-url]
+[![License][license-shield]][license-url]
+
+<br />
+
 <div align="center">
-  <img src="src/assets/brand/banner.png" alt="DesktopClaw — Your Vigilant, Warm Desktop Companion" width="100%" />
+  <a href="https://github.com/divbasson/DesktopClaw">
+    <img src="src/assets/brand/avatar.png" alt="DesktopClaw Avatar" width="96" height="96">
+  </a>
+
+  <h3 align="center">DesktopClaw</h3>
+
+  <p align="center">
+    A small Windows desktop avatar that gives OpenClaw a visible, voice-enabled presence.
+    <br />
+    <a href="RELEASE_NOTES.md"><strong>Read the release notes »</strong></a>
+    <br />
+    <br />
+    <a href="https://github.com/divbasson/DesktopClaw/releases">Download Releases</a>
+    &middot;
+    <a href="https://github.com/divbasson/DesktopClaw/issues/new?labels=bug&template=bug_report.md">Report Bug</a>
+    &middot;
+    <a href="https://github.com/divbasson/DesktopClaw/issues/new?labels=enhancement&template=feature_request.md">Request Feature</a>
+  </p>
 </div>
 
-<br/>
-
 <div align="center">
-  <img src="src/assets/brand/avatar.png" alt="DesktopClaw Avatar" width="96" />
-
-  # DesktopClaw
-
-[![CodeQL](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql)
-
-
-
-  *A Windows desktop pet companion powered by OpenClaw.*
+  <img src="src/assets/brand/banner.png" alt="DesktopClaw - Your Vigilant, Warm Desktop Companion" width="100%" />
 </div>
 
-## Prieview
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li>
+      <a href="#about-the-project">About The Project</a>
+      <ul>
+        <li><a href="#built-with">Built With</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#download">Download</a>
+    </li>
+    <li>
+      <a href="#getting-started">Getting Started</a>
+      <ul>
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#run-from-source">Run From Source</a></li>
+      </ul>
+    </li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#openclaw-gateway">OpenClaw Gateway</a></li>
+    <li><a href="#voice-and-speech">Voice And Speech</a></li>
+    <li><a href="#configuration">Configuration</a></li>
+    <li><a href="#packaging">Packaging</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+  </ol>
+</details>
 
-  <img src="src/assets/brand/prievew.gif"/>
+## About The Project
 
-  Complete redesign in v0.0.10 - Please see releases for list of changes. 
+<div align="center">
+  <img width="240" height="300" alt="DesktopClaw avatar preview" src="https://github.com/user-attachments/assets/6a167d9e-c02a-45a0-a6ad-8459d6400dba" />
+</div>
 
-<img width="240" height="300" alt="Video Project 21 (1)" src="https://github.com/user-attachments/assets/6a167d9e-c02a-45a0-a6ad-8459d6400dba" />
+DesktopClaw is a transparent Electron desktop companion for OpenClaw. It sits on your Windows desktop as a small animated avatar, listens when you ask for attention, speaks OpenClaw responses back through local text-to-speech, and stays out of the way when a request is still running.
 
-<br/>
+The goal is to make OpenClaw feel less like a background service and more like a present, responsive assistant. You can send a chat request, check gateway settings, change app options, or use the tray while the request continues. DesktopClaw keeps the active request alive and only removes the in-progress indicator when that specific request has a valid response.
 
-## What this prototype does
+What it does today:
 
-- Floating transparent desktop pet window
-- Draggable mascot with idle motion and random quirks
-- Always-on-top toggle (default on)
-- Global hotkey to trigger listening
-- Voice input via Web Speech API when available
-- Text input fallback
-- Configurable OpenClaw gateway client with mock mode
-- TTS playback via system voices
-- Basic mouth animation synced from lightweight speech amplitude heuristics
-- Settings panel backed by `config.json`
-- Wake-word fallback mode using continuous speech recognition when supported
-- Optional click-through when idle
-- Status polling with lightweight in-app notifications
-- Optional WebSocket live-event stream support
-- Native desktop notifications
-- Voice selection from available system TTS voices
-- Cursor-proximity reaction for a more alive idle feel
-- System tray menu for quick pet actions
+- Connects to OpenClaw through a WebSocket gateway.
+- Shows a draggable, transparent, always-on-top desktop avatar.
+- Accepts typed prompts and push-to-talk voice input.
+- Speaks responses with local Piper text-to-speech.
+- Tracks in-progress jobs as request-scoped visual indicators.
+- Handles long-lived OpenClaw sessions with interleaved user, tool, retry, and assistant messages.
+- Lets you double-click the avatar to interrupt speech.
+- Offers gateway status, model refresh, mute, visibility, settings, and quit actions from the system tray.
+- Supports optional idle click-through behavior.
 
-## Architecture
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-```text
-src/
-  main/
-    app-controller.js   App orchestration + IPC
-    config-store.js     Persisted config lifecycle
-    main.js             Electron entrypoint
-    openclaw-client.js  OpenClaw/mock HTTP client
-    preload.js          Safe renderer bridge
-    shortcut-manager.js Global hotkey registration
-    ui-shell.js         Window creation + shell controls
-  renderer/
-    animation_engine.js Animation state + mouth/quirks
-    index.html          Floating pet UI
-    openclaw_client.js  Renderer-side gateway adapter
-    renderer.js         Composition root for pet behavior
-    styles.css          Pet visuals + animation states
-    tts_engine.js       System TTS wrapper
-    ui_shell.js         Bubble/settings helpers
-    voice_input.js      Speech capture wrapper
-    wake_word.js        Wake word fallback watcher
-  shared/
-    config.js           Config load/save
-  assets/
-    sprites/
-      openclaw_pet.svg
-      animations.json
-config.json             Runtime configuration
-```
+### Built With
 
-## Quick start
+- [![Electron][electron-shield]][electron-url]
+- [![Node.js][node-shield]][node-url]
+- [![JavaScript][javascript-shield]][javascript-url]
+- [Piper TTS][piper-url]
+- [Vosk][vosk-url]
+- [OpenClaw][openclaw-url]
 
-```bash
-cd /zfs/source-code/desktopclaw
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Download
+
+Installer and standalone builds are available from the GitHub releases page:
+
+<div align="center">
+  <a href="https://github.com/divbasson/DesktopClaw/releases"><strong>Download DesktopClaw Releases »</strong></a>
+</div>
+
+Use the installer when you want DesktopClaw registered like a normal Windows app with shortcuts. Use the standalone/portable build when you want to try it without installing it system-wide.
+
+Runtime settings are stored under the current Windows user profile, so packaged builds can preserve your gateway, voice, hotkey, and UI preferences between launches.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Getting Started
+
+Use the release installer or standalone build for normal use. Run from source when you are developing, testing local gateway behavior, or changing the avatar code.
+
+### Prerequisites
+
+- Windows.
+- Node.js `20.x` or newer compatible with the Electron dependency set.
+- An OpenClaw gateway reachable over WebSocket.
+- Optional: Piper installed locally for speech output.
+- Optional: Vosk model files under `models/` for native speech capture.
+
+### Run From Source
+
+```powershell
+git clone https://github.com/divbasson/DesktopClaw.git
+cd DesktopClaw
 npm install
 npm start
 ```
 
-## Configuring OpenClaw
+The app starts as a transparent desktop avatar. Hover or click the avatar to open the text input, or use the listen hotkey for voice input.
 
-Edit `config.json` or use the settings panel.
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-When running the packaged app, DesktopClaw persists runtime settings in the Electron user data folder (`%APPDATA%/DesktopClaw/config.json`) so updates like `gateway.mode = "http"` are writable and survive restarts.
+## Usage
 
-- `gateway.mode = "mock"` keeps everything local for UI testing.
-- `gateway.mode = "http"` sends requests to:
-  - `baseUrl + chatPath` for chat
-  - `baseUrl + statusPath` for status
-- Authentication options for `gateway.mode = "http"`:
-  - `gateway.token` sends `Authorization: Bearer <token>`
-  - `gateway.password` sends `X-OpenClaw-Password: <password>`
-  - If both are set, both auth headers are sent
-- Current request payload is:
+DesktopClaw is designed to feel like a small companion rather than a static chat window.
 
-```json
-{ "message": "...", "input": "...", "query": "..." }
-```
+- Click or hover near the avatar to bring up the text input.
+- Type a request and press `Enter`.
+- Use `Ctrl+Shift+Space` to start voice capture.
+- Watch the compact request indicator while OpenClaw is working.
+- Continue using settings or the tray while a request is in progress.
+- Double-click the avatar while it is speaking to stop the current spoken response.
+- Use the tray menu for mute, visibility, settings, status checks, and model refresh.
 
-The client accepts a reply from any of these response fields:
-
-- `reply`
-- `text`
-- `message`
-- `output`
-- `response`
-
-If your OpenClaw gateway uses a different schema, adapt `src/main/openclaw-client.js`.
-
-## Status polling and notifications
-
-A lightweight polling monitor is included for the MVP.
-
-Config keys:
-
-- `status.pollEnabled`
-- `status.pollIntervalMs`
-- `status.showNotifications`
-- `status.speakNotifications`
-- `status.nativeNotifications`
-- `gateway.eventsEnabled`
-- `gateway.eventsUrl`
-
-Current behavior:
-
-- polls the configured status endpoint
-- updates the pet's status pill
-- raises a small in-app notification when status payload changes
-- can optionally speak those updates
-- can subscribe to a WebSocket event feed for live OpenClaw notifications
-- can mirror notifications to native desktop toasts
-
-## Hotkeys
-
-Default hotkeys live in `config.json`:
+Default hotkeys:
 
 - Listen: `Ctrl+Shift+Space`
 - Mute: `Ctrl+Shift+M`
 - Show/hide: `Ctrl+Shift+H`
 - Settings: `Ctrl+Shift+S`
 
-## Building a Windows .exe
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-For a fast unpacked Windows prototype:
+## OpenClaw Gateway
 
-```bash
+DesktopClaw is primarily a WebSocket gateway client. The default settings point at a local OpenClaw gateway:
+
+```json
+{
+  "gateway": {
+    "mode": "gateway",
+    "baseUrl": "ws://localhost:18789",
+    "eventsUrl": "ws://localhost:18789",
+    "sessionKey": "main",
+    "timeoutMs": 30000
+  }
+}
+```
+
+The app talks to OpenClaw through gateway methods such as:
+
+- `connect`
+- `chat.send`
+- `chat.history`
+- `health` / `status`
+- `sessions.list`
+- `models.list`
+
+OpenClaw sessions are long-lived and can contain messages from the desktop app, other chat surfaces, tool calls, retries, model errors, and final assistant replies. DesktopClaw correlates replies to the matching user request instead of assuming the whole session represents one job.
+
+Model listing is supported through OpenClaw. Session model switching depends on backend support and may be unavailable on some gateway versions.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Voice And Speech
+
+DesktopClaw supports native voice input and local speech output:
+
+- Voice input uses the native Vosk listener in `src/native/vosk_listener.py`.
+- Push-to-talk is available with the global listen hotkey.
+- Text-to-speech uses Piper when `tts.usePiperTts` is enabled.
+- The default Piper voice path is configured as `tts.piperModel`.
+- Double-click the avatar while it is speaking to stop the current spoken response.
+
+Default Piper settings:
+
+```json
+{
+  "tts": {
+    "usePiperTts": true,
+    "piperExe": "C:\\piper\\piper\\piper.exe",
+    "piperModel": "F:\\DesktopClaw\\models\\piper\\voices\\cori-med.onnx"
+  }
+}
+```
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Configuration
+
+Default settings live in:
+
+```text
+settings.defaults.json
+```
+
+Runtime settings are written by Electron under the current user's app data folder:
+
+```text
+%APPDATA%\desktopclaw\settings.json
+```
+
+The settings panel can update gateway connection details, token/password values, hotkeys, click-through behavior, voice settings, and status polling options.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Packaging
+
+For an unpacked Windows build:
+
+```powershell
 npm run dist:dir
 ```
 
-That targets `dist/win-unpacked/DesktopClaw.exe`.
+For installer and portable artifacts:
 
-For installer + portable packaging:
-
-This repo is set up for `electron-builder`:
-
-```bash
+```powershell
 npm run dist
 ```
 
-That produces a Windows installer/portable app **when run in a Windows-capable packaging environment**.
+Build output is written to `dist/`. Release artifacts include an installer and a standalone/portable build when produced through the Windows packaging flow.
 
-### Important note
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-I prepared the project for Windows packaging, but if you are building from Linux you may still need one of:
+## Roadmap
 
-- a Windows machine
-- Wine + NSIS toolchain
-- CI that targets Windows
+- [x] Transparent desktop avatar shell.
+- [x] WebSocket OpenClaw gateway client.
+- [x] Native Vosk push-to-talk capture.
+- [x] Piper text-to-speech playback.
+- [x] Request-scoped job indicators.
+- [x] Speech interruption by double-clicking the avatar.
+- [ ] Stronger packaged-app smoke tests for installer and standalone artifacts.
+- [ ] Deeper visual QA around transparent-window edge cases.
+- [ ] More polished first-run gateway pairing flow.
+- [ ] Better in-app model/backend capability messaging.
 
-So the codebase is ready for `.exe` output, but final packaging depends on the host build environment.
+See the [open issues][issues-url] for tracked bugs and feature requests.
 
-## MVP limitations
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-- Wake word is config-backed but not yet true offline wake-word detection
-- Speech recognition depends on platform/browser support in Electron
-- Mouth sync is amplitude/heuristic-based, not phoneme-based
-- Asset pack is intentionally minimal and code-driven for the MVP
+## Contributing
 
-## Next best upgrades
+Issues and pull requests are welcome. For useful reports, include:
 
-1. Add native STT (Whisper/Vosk) for reliable speech capture
-2. Add Porcupine/openWakeWord for true wake word support
-3. Replace CSS pet with full PNG sprite atlas from the approved art pack
-4. Add WebSocket/live OpenClaw events and notification badges
-5. Add click-through-on-idle behavior tuning and cursor reactions
+- DesktopClaw version or commit.
+- Whether you used the installer, standalone build, or source checkout.
+- OpenClaw gateway URL/mode, with secrets removed.
+- Relevant lines from `%APPDATA%\desktopclaw\logs\desktopclaw-debug.log`.
+- A short description of what you expected and what happened.
+
+Please keep changes focused and verify behavior against a real OpenClaw gateway when the change touches messaging, sessions, voice, or packaging.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## License
+
+Distributed under the MIT license declared in [package.json][license-url].
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Project Layout
+
+```text
+src/
+  main/
+    app-controller.js    Main orchestration and IPC
+    config-store.js      Runtime config lifecycle
+    logger.js            App log writer
+    main.js              Electron entrypoint
+    native-stt.js        Native Vosk speech capture wrapper
+    native-tts.js        Piper synthesis wrapper
+    openclaw-client.js   OpenClaw WebSocket gateway client
+    preload.js           Safe renderer bridge
+    shortcut-manager.js  Global hotkeys
+    tray-manager.js      System tray menu
+    ui-shell.js          Transparent Electron window
+  renderer/
+    animation_engine.js  Avatar animation state
+    index.html           Avatar UI root
+    openclaw_client.js   Renderer gateway adapter
+    renderer.js          Avatar behavior composition
+    styles.css           Visual styling and animation states
+    tts_engine.js        Renderer speech playback controller
+    ui_shell.js          Bubble/settings helpers
+    wake_word.js         Wake/listen flow support
+  shared/
+    config.js            Config load/save helpers
+```
+
+## Development Notes
+
+- Keep request UI scoped to individual requests. Do not use OpenClaw session lifetime to decide whether a request indicator should remain visible.
+- OpenClaw may write transient assistant errors before a valid retry response. The client should prefer the first usable assistant text that follows the matching user message.
+- Settings changes should not close a gateway client that is still waiting for an active chat response.
+- The transparent window is sensitive to blurred layers near its edges; avoid large blurred rectangles that can reveal window bounds.
+- `npm run lint` is currently a placeholder script, so syntax checks and live gateway tests are still important.
 
 ---
+
 <div align="center">
-  <img src="src/assets/brand/preview-notification.png" alt="DesktopClaw in action — System Ready notification" width="600" />
+  <img src="src/assets/brand/preview-notification.png" alt="DesktopClaw notification preview" width="600" />
   <br/>
-  <sub>© DesktopClaw — Your Vigilant, Warm Desktop Companion</sub>
+  <sub>DesktopClaw - an OpenClaw desktop companion</sub>
 </div>
+
+[codeql-shield]: https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql/badge.svg
+[codeql-url]: https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql
+[release-shield]: https://img.shields.io/github/v/release/divbasson/DesktopClaw?style=for-the-badge
+[release-url]: https://github.com/divbasson/DesktopClaw/releases
+[issues-shield]: https://img.shields.io/github/issues/divbasson/DesktopClaw.svg?style=for-the-badge
+[issues-url]: https://github.com/divbasson/DesktopClaw/issues
+[license-shield]: https://img.shields.io/badge/license-MIT-green?style=for-the-badge
+[license-url]: https://github.com/divbasson/DesktopClaw/blob/main/package.json
+[electron-shield]: https://img.shields.io/badge/Electron-191970?style=for-the-badge&logo=electron&logoColor=white
+[electron-url]: https://www.electronjs.org/
+[node-shield]: https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white
+[node-url]: https://nodejs.org/
+[javascript-shield]: https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=000
+[javascript-url]: https://developer.mozilla.org/en-US/docs/Web/JavaScript
+[piper-url]: https://github.com/rhasspy/piper
+[vosk-url]: https://alphacephei.com/vosk/
+[openclaw-url]: https://github.com/divbasson/OpenClaw
