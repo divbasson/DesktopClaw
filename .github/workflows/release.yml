@@ -28,9 +28,7 @@ jobs:
         run: npm install
 
       - name: Build Windows installer
-        run: npm run dist
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+        run: npm run dist -- --publish never
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
