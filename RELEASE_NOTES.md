@@ -1,4 +1,4 @@
-# DesktopClaw v0.1.0 Release Notes
+# DesktopClaw v0.1.1 Release Notes
 
 Changes since `v0.0.10`.
 
