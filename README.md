@@ -9,42 +9,51 @@
 
   # DesktopClaw
 
-[![CodeQL](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql)
+  [![CodeQL](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/divbasson/DesktopClaw/actions/workflows/github-code-scanning/codeql)
 
-
-
-  *A Windows desktop pet companion powered by OpenClaw.*
+  *A warm, vigilant Windows desktop pet companion powered by OpenClaw.*
 </div>
 
-## Prieview
+---
 
-  <img src="src/assets/brand/prievew.gif"/>
+## Preview
 
-  Complete redesign in v0.0.10 - Please see releases for list of changes. 
-
-<img width="240" height="300" alt="Video Project 21 (1)" src="https://github.com/user-attachments/assets/6a167d9e-c02a-45a0-a6ad-8459d6400dba" />
+<div align="center">
+  <img src="src/assets/brand/prievew.gif" alt="DesktopClaw animated preview" width="420" />
+  <br/>
+  <sub>Complete redesign in v0.0.10. See releases for the full change list.</sub>
+</div>
 
 <br/>
 
-## What this prototype does
+<div align="center">
+  <img width="240" height="300" alt="DesktopClaw prototype preview" src="https://github.com/user-attachments/assets/6a167d9e-c02a-45a0-a6ad-8459d6400dba" />
+</div>
+
+## What is DesktopClaw?
+
+DesktopClaw is an Electron-based Windows desktop companion that floats above your workspace, reacts to your cursor, listens through a global hotkey, talks back with system text-to-speech, and connects to an OpenClaw gateway when you want it to act as more than a cute mascot.
+
+It can run fully local in mock mode for UI testing, or connect to an HTTP OpenClaw gateway for real assistant-style interactions, status polling, notifications, and live event updates.
+
+## Current features
 
 - Floating transparent desktop pet window
 - Draggable mascot with idle motion and random quirks
-- Always-on-top toggle (default on)
-- Global hotkey to trigger listening
+- Always-on-top toggle, enabled by default
+- Global hotkeys for listen, mute, show/hide, and settings
 - Voice input via Web Speech API when available
 - Text input fallback
 - Configurable OpenClaw gateway client with mock mode
-- TTS playback via system voices
-- Basic mouth animation synced from lightweight speech amplitude heuristics
+- TTS playback via available system voices
+- Lightweight mouth animation synced from speech amplitude heuristics
 - Settings panel backed by `config.json`
 - Wake-word fallback mode using continuous speech recognition when supported
-- Optional click-through when idle
+- Optional click-through behavior when idle
+- Cursor-proximity reactions for a more alive desktop presence
 - Status polling with lightweight in-app notifications
 - Optional WebSocket live-event stream support
 - Native desktop notifications
-- Voice selection from available system TTS voices
-- Cursor-proximity reaction for a more alive idle feel
 - System tray menu for quick pet actions
 
 ## Architecture
@@ -81,32 +90,53 @@ config.json             Runtime configuration
 ## Quick start
 
 ```bash
-cd /zfs/source-code/desktopclaw
+git clone https://github.com/divbasson/DesktopClaw.git
+cd DesktopClaw
 npm install
 npm start
 ```
 
-## Configuring OpenClaw
+## Configuration
 
-Edit `config.json` or use the settings panel.
+DesktopClaw can be configured through the settings panel or by editing `config.json`.
 
-When running the packaged app, DesktopClaw persists runtime settings in the Electron user data folder (`%APPDATA%/DesktopClaw/config.json`) so updates like `gateway.mode = "http"` are writable and survive restarts.
+When running the packaged app, runtime settings are stored in the Electron user data folder:
 
-- `gateway.mode = "mock"` keeps everything local for UI testing.
-- `gateway.mode = "http"` sends requests to:
-  - `baseUrl + chatPath` for chat
-  - `baseUrl + statusPath` for status
-- Authentication options for `gateway.mode = "http"`:
-  - `gateway.token` sends `Authorization: Bearer <token>`
-  - `gateway.password` sends `X-OpenClaw-Password: <password>`
-  - If both are set, both auth headers are sent
-- Current request payload is:
-
-```json
-{ "message": "...", "input": "...", "query": "..." }
+```text
+%APPDATA%/DesktopClaw/config.json
 ```
 
-The client accepts a reply from any of these response fields:
+This keeps packaged builds writable and allows settings such as `gateway.mode = "http"` to survive restarts.
+
+## OpenClaw gateway setup
+
+DesktopClaw supports two gateway modes:
+
+- `gateway.mode = "mock"` keeps everything local for UI testing.
+- `gateway.mode = "http"` sends requests to a running OpenClaw gateway.
+
+When using HTTP mode, DesktopClaw calls:
+
+- `baseUrl + chatPath` for chat requests
+- `baseUrl + statusPath` for status polling
+
+Authentication options:
+
+- `gateway.token` sends `Authorization: Bearer <token>`
+- `gateway.password` sends `X-OpenClaw-Password: <password>`
+- If both are configured, both headers are sent
+
+Current request payload:
+
+```json
+{
+  "message": "...",
+  "input": "...",
+  "query": "..."
+}
+```
+
+DesktopClaw accepts a reply from any of these response fields:
 
 - `reply`
 - `text`
@@ -114,11 +144,11 @@ The client accepts a reply from any of these response fields:
 - `output`
 - `response`
 
-If your OpenClaw gateway uses a different schema, adapt `src/main/openclaw-client.js`.
+If your gateway uses a different schema, adapt `src/main/openclaw-client.js`.
 
 ## Status polling and notifications
 
-A lightweight polling monitor is included for the MVP.
+The MVP includes a lightweight polling monitor.
 
 Config keys:
 
@@ -133,9 +163,9 @@ Config keys:
 Current behavior:
 
 - polls the configured status endpoint
-- updates the pet's status pill
-- raises a small in-app notification when status payload changes
-- can optionally speak those updates
+- updates the pet status pill
+- raises a small in-app notification when the status payload changes
+- can optionally speak status updates
 - can subscribe to a WebSocket event feed for live OpenClaw notifications
 - can mirror notifications to native desktop toasts
 
@@ -143,12 +173,14 @@ Current behavior:
 
 Default hotkeys live in `config.json`:
 
-- Listen: `Ctrl+Shift+Space`
-- Mute: `Ctrl+Shift+M`
-- Show/hide: `Ctrl+Shift+H`
-- Settings: `Ctrl+Shift+S`
+| Action | Hotkey |
+| --- | --- |
+| Listen | `Ctrl+Shift+Space` |
+| Mute | `Ctrl+Shift+M` |
+| Show/hide | `Ctrl+Shift+H` |
+| Settings | `Ctrl+Shift+S` |
 
-## Building a Windows .exe
+## Building a Windows `.exe`
 
 For a fast unpacked Windows prototype:
 
@@ -156,44 +188,47 @@ For a fast unpacked Windows prototype:
 npm run dist:dir
 ```
 
-That targets `dist/win-unpacked/DesktopClaw.exe`.
+Output:
 
-For installer + portable packaging:
+```text
+dist/win-unpacked/DesktopClaw.exe
+```
 
-This repo is set up for `electron-builder`:
+For installer and portable packaging:
 
 ```bash
 npm run dist
 ```
 
-That produces a Windows installer/portable app **when run in a Windows-capable packaging environment**.
+This repository is set up for `electron-builder`. Installer and portable builds are produced when running in a Windows-capable packaging environment.
 
-### Important note
+### Packaging note
 
-I prepared the project for Windows packaging, but if you are building from Linux you may still need one of:
+If you are building from Linux, you may still need one of the following:
 
 - a Windows machine
-- Wine + NSIS toolchain
+- Wine and the NSIS toolchain
 - CI that targets Windows
 
-So the codebase is ready for `.exe` output, but final packaging depends on the host build environment.
+The codebase is prepared for `.exe` output, but final packaging depends on the host build environment.
 
 ## MVP limitations
 
-- Wake word is config-backed but not yet true offline wake-word detection
+- Wake word support is config-backed but not yet true offline wake-word detection
 - Speech recognition depends on platform/browser support in Electron
 - Mouth sync is amplitude/heuristic-based, not phoneme-based
 - Asset pack is intentionally minimal and code-driven for the MVP
 
 ## Next best upgrades
 
-1. Add native STT (Whisper/Vosk) for reliable speech capture
-2. Add Porcupine/openWakeWord for true wake word support
-3. Replace CSS pet with full PNG sprite atlas from the approved art pack
-4. Add WebSocket/live OpenClaw events and notification badges
-5. Add click-through-on-idle behavior tuning and cursor reactions
+1. Add native STT with Whisper or Vosk for reliable speech capture
+2. Add Porcupine or openWakeWord for true wake-word support
+3. Replace the CSS pet with a full PNG sprite atlas from the approved art pack
+4. Expand WebSocket/live OpenClaw events and notification badges
+5. Tune click-through-on-idle behavior and cursor reactions
 
 ---
+
 <div align="center">
   <img src="src/assets/brand/preview-notification.png" alt="DesktopClaw in action — System Ready notification" width="600" />
   <br/>
