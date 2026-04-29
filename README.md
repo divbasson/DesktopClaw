@@ -1,10 +1,5 @@
 <a id="readme-top"></a>
 
-[![CodeQL][codeql-shield]][codeql-url]
-[![GitHub release][release-shield]][release-url]
-[![GitHub issues][issues-shield]][issues-url]
-[![License][license-shield]][license-url]
-
 <br />
 
 <div align="center">
