@@ -11,7 +11,7 @@ const DEFAULT_OPERATOR_SCOPES = ['operator.read', 'operator.write'];
 const ADMIN_OPERATOR_SCOPES = ['operator.read', 'operator.write', 'operator.admin'];
 const CHAT_HISTORY_LIMIT = 200;
 const CHAT_POLL_INTERVAL_MS = 1200;
-const CHAT_REPLY_TIMEOUT_MS = 180000;
+const CHAT_REPLY_TIMEOUT_MS = 300000;
 
 function getApp() {
   try {
@@ -445,6 +445,16 @@ function getTextFromMessage(message) {
   return '';
 }
 
+function getMessageSeq(message) {
+  const seq = Number(message?.__openclaw?.seq ?? message?.seq ?? 0);
+  return Number.isFinite(seq) ? seq : 0;
+}
+
+function getMessageTimestamp(message) {
+  const timestamp = Number(message?.timestamp || message?.createdAt || message?.created_at || 0);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function getTextFromGatewayResponse(response) {
   if (!response || typeof response !== 'object') return '';
 
@@ -459,6 +469,15 @@ function getTextFromGatewayResponse(response) {
   }
 
   return getTextFromMessage(response);
+}
+
+function getBestTextFromChatPayload(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+
+  const messageText = getTextFromMessage(payload.message);
+  if (messageText) return messageText;
+
+  return getTextFromGatewayResponse(payload);
 }
 
 function isAssistantMessage(message) {
@@ -477,7 +496,8 @@ function fingerprintMessage(message) {
   const timestamp = String(message?.timestamp || message?.createdAt || message?.created_at || '');
   const role = String(message?.role || '');
   const text = getTextFromMessage(message);
-  return `${id}|${timestamp}|${role}|${text}`;
+  const seq = getMessageSeq(message);
+  return `${id}|${timestamp}|${seq}|${role}|${text}`;
 }
 
 function isUserMessageMatch(message, expectedText, earliestTimestamp) {
@@ -492,6 +512,41 @@ function isSessionKeyMatch(actual, expected) {
   const actualKey = String(actual || '');
   const expectedKey = String(expected || '');
   return actualKey === expectedKey || actualKey.endsWith(`:${expectedKey}`);
+}
+
+function findAssistantReplyAfterRequest(messages, {
+  expectedText,
+  previousAssistantFingerprints,
+  previousMaxSeq,
+  sendStartedAt,
+}) {
+  const ordered = [...messages].sort((a, b) => {
+    const seqDelta = getMessageSeq(a) - getMessageSeq(b);
+    if (seqDelta !== 0) return seqDelta;
+    return getMessageTimestamp(a) - getMessageTimestamp(b);
+  });
+
+  const requestIndex = ordered.findIndex((message) => {
+    if (!isUserMessageMatch(message, expectedText, sendStartedAt - 1000)) return false;
+    const seq = getMessageSeq(message);
+    return !previousMaxSeq || !seq || seq > previousMaxSeq;
+  });
+
+  const candidates = requestIndex >= 0
+    ? ordered.slice(requestIndex + 1)
+    : ordered.filter((message) => {
+        const seq = getMessageSeq(message);
+        const timestamp = getMessageTimestamp(message);
+        return (!previousMaxSeq || !seq || seq > previousMaxSeq)
+          && (!timestamp || timestamp >= sendStartedAt - 1000);
+      });
+
+  return candidates.find((message) => {
+    if (!isAssistantMessage(message)) return false;
+    if (!getTextFromMessage(message)) return false;
+    if (isAssistantErrorMessage(message)) return false;
+    return !previousAssistantFingerprints.has(fingerprintMessage(message));
+  }) || null;
 }
 
 function getConfiguredScopes(config) {
@@ -880,6 +935,7 @@ class OpenClawClient {
         .filter(isAssistantMessage)
         .map(fingerprintMessage),
     );
+    const previousMaxSeq = previousMessages.reduce((max, message) => Math.max(max, getMessageSeq(message)), 0);
 
     const sendStartedAt = Date.now();
     const sendResponse = await this.gatewayClient.request('chat.send', {
@@ -901,6 +957,7 @@ class OpenClawClient {
     const runId = typeof sendResponse?.runId === 'string' ? sendResponse.runId : null;
     const deadline = Date.now() + Math.max(this.config.gateway.timeoutMs || 15000, CHAT_REPLY_TIMEOUT_MS);
     let resolvedText = '';
+    let finalPayload = null;
     let stopListening = null;
 
     const eventResult = new Promise((resolve, reject) => {
@@ -908,11 +965,12 @@ class OpenClawClient {
         if (event?.event !== 'chat') return;
         const payload = event?.payload;
         if (!payload || !isSessionKeyMatch(payload.sessionKey, sessionKey)) return;
-        if (runId && payload.runId && payload.runId !== runId) return;
+        if (!runId) return;
+        if (payload.runId !== runId) return;
 
         const state = String(payload.state || '').toLowerCase();
         const message = payload.message;
-        const textFromEvent = getTextFromMessage(message);
+        const textFromEvent = getBestTextFromChatPayload(payload);
         if (textFromEvent) {
           resolvedText = textFromEvent;
         }
@@ -928,6 +986,8 @@ class OpenClawClient {
         }
 
         if (state === 'final') {
+          finalPayload = payload;
+
           if (message && isAssistantErrorMessage(message)) {
             reject(new Error(textFromEvent || payload.errorMessage || 'Gateway chat run failed.'));
             return;
@@ -950,12 +1010,6 @@ class OpenClawClient {
             });
             return;
           }
-
-          resolve({
-            ok: true,
-            text: 'OpenClaw completed the request, but did not return a message.',
-            raw: payload,
-          });
         }
       });
     });
@@ -982,19 +1036,14 @@ class OpenClawClient {
         limit: CHAT_HISTORY_LIMIT,
       }).catch(() => null);
       const messages = Array.isArray(history?.messages) ? history.messages : [];
-      const newAssistantMessages = messages
-        .filter(isAssistantMessage)
-        .filter((message) => {
-          if (previousAssistantFingerprints.size > 0) {
-            return !previousAssistantFingerprints.has(fingerprintMessage(message));
-          }
+      const latestAssistant = findAssistantReplyAfterRequest(messages, {
+        expectedText: text,
+        previousAssistantFingerprints,
+        previousMaxSeq,
+        sendStartedAt,
+      });
 
-          const timestamp = Number(message?.timestamp || message?.createdAt || message?.created_at || 0);
-          return Number.isFinite(timestamp) && timestamp >= sendStartedAt - 1000;
-        });
-
-      if (newAssistantMessages.length > 0) {
-        const latestAssistant = newAssistantMessages[newAssistantMessages.length - 1];
+      if (latestAssistant) {
         stopListening?.();
         const latestText = getTextFromMessage(latestAssistant);
         if (isAssistantErrorMessage(latestAssistant)) {
@@ -1007,10 +1056,27 @@ class OpenClawClient {
           raw: latestAssistant,
         };
       }
+
+      if (finalPayload && resolvedText) {
+        stopListening?.();
+        return {
+          ok: true,
+          text: resolvedText,
+          raw: finalPayload,
+        };
+      }
     }
 
     stopListening?.();
-    throw new Error('OpenClaw accepted the message, but no assistant reply arrived before timeout.');
+    if (resolvedText) {
+      return {
+        ok: true,
+        text: resolvedText,
+        raw: finalPayload || sendResponse,
+      };
+    }
+
+    throw new Error('OpenClaw finished the run, but no assistant message arrived before timeout.');
   }
 
   async listModels() {
@@ -1094,26 +1160,9 @@ class OpenClawClient {
     const methods = ['sessions.setModel', 'sessions.update', 'chat.setModel'];
     const errors = [];
 
-    for (const method of methods) {
-      try {
-        const raw = await this.gatewayClient.request(method, params);
-        return {
-          ok: true,
-          modelProvider,
-          model,
-          modelKey: modelProvider ? `${modelProvider}/${model}` : model,
-          method,
-          raw,
-        };
-      } catch (error) {
-        errors.push(`${method}: ${error.message}`);
-        if (/missing scope|scope upgrade|pairing approval/i.test(error.message)) {
-          throw error;
-        }
-      }
-    }
 
-    throw new Error(errors.join(' ; '));
+      // Model switching is not supported by the backend
+      throw new Error('Model switching is not supported by the current OpenClaw backend.');
   }
 
   async getStatus() {

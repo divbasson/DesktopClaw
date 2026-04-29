@@ -14,6 +14,7 @@ class AppController {
     this.configStore = new ConfigStore();
     this.config = this.configStore.get();
     this.client = new OpenClawClient(this.config);
+    this.activeQueryClients = new Set();
     this.nativeStt = new NativeSttService();
     this.nativeTts = new NativeTtsService();
     this.uiShell = new UiShell(this.config);
@@ -50,7 +51,7 @@ class AppController {
   bindIpc() {
     ipcMain.handle('config:get', () => this.config);
     ipcMain.handle('config:set', (_event, nextConfig) => this.setConfig(nextConfig));
-    ipcMain.handle('pet:query', async (_event, text) => this.safeCall(() => this.client.sendQuery(text)));
+    ipcMain.handle('pet:query', async (_event, text) => this.safeCall(() => this.sendPetQuery(text)));
     ipcMain.handle('stt:listen-once', async (_event, options) => this.safeCall(() => this.nativeStt.listenOnce(options)));
     ipcMain.handle('tts:speak-piper', async (_event, text) => this.safeCall(() => this.nativeTts.synthesize({
       text,
@@ -85,13 +86,30 @@ class AppController {
     } catch (error) {
       throw new Error(`Failed to save config: ${error.message}`);
     }
-    previousClient?.close?.();
+    if (this.activeQueryClients.has(previousClient)) {
+      logInfo('app-controller', 'Keeping previous OpenClaw client alive for active query');
+    } else {
+      previousClient?.close?.();
+    }
     this.client = new OpenClawClient(this.config);
     this.uiShell.applyConfig(this.config);
     this.shortcutManager.register(this.config);
     this.trayManager.setMenu(this.config);
     this.uiShell.send('config:updated', this.config);
     return this.config;
+  }
+
+  async sendPetQuery(text) {
+    const client = this.client;
+    this.activeQueryClients.add(client);
+    try {
+      return await client.sendQuery(text);
+    } finally {
+      this.activeQueryClients.delete(client);
+      if (client !== this.client) {
+        client.close();
+      }
+    }
   }
 
   summarizeGatewayStatus(result) {
@@ -197,13 +215,25 @@ class AppController {
     };
     this.trayManager.setModelState({ loading: true, error: '' });
     const adminClient = new OpenClawClient(adminConfig);
-    const result = await this.safeCall(async () => {
+      let result;
       try {
-        return await adminClient.setSessionModel(modelKey);
-      } finally {
-        adminClient.close();
+        result = await this.safeCall(async () => {
+          try {
+            return await adminClient.setSessionModel(modelKey);
+          } finally {
+            adminClient.close();
+          }
+        });
+      } catch (err) {
+        // Model switching not supported
+        const summary = 'Model switching is not supported by the current OpenClaw backend.';
+        this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });
+        this.uiShell.send('gateway:status', {
+          error: summary,
+          fromTray: true,
+        });
+        return;
       }
-    });
     if (!result?.ok) {
       const summary = this.summarizeModelError(new Error(result?.error || 'Failed to set OpenClaw model.'));
       this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });

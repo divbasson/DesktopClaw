@@ -1,3 +1,122 @@
+// --- Markdown rendering utilities (copied from ui_shell.js) ---
+function _inlineMd(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+?)`/g, '<code>$1</code>');
+}
+
+function renderMarkdown(raw) {
+  const escaped = _escapeHtml(raw);
+  const lines = escaped.split('\n');
+  let html = '';
+  let inList = false;
+
+  for (const line of lines) {
+    const hMatch = line.match(/^(#{1,3}) (.+)/);
+    if (hMatch) {
+      if (inList) { html += '</ul>'; inList = false; }
+      const level = Math.min(hMatch[1].length + 1, 5);
+      html += `<h${level}>${_inlineMd(hMatch[2])}</h${level}>`;
+      continue;
+    }
+    const liMatch = line.match(/^[-*] (.+)/);
+    if (liMatch) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += `<li>${_inlineMd(liMatch[1])}</li>`;
+      continue;
+    }
+    if (inList) { html += '</ul>'; inList = false; }
+    if (!line.trim()) { html += '<br>'; continue; }
+    html += `<p>${_inlineMd(line)}</p>`;
+  }
+  if (inList) html += '</ul>';
+  return html;
+}
+// --- Utility: Escape HTML for safe rendering ---
+function _escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+// --- Session Manager for concurrent requests ---
+class SessionManager {
+  constructor(container) {
+    this.container = container;
+    this.sessions = new Map();
+    this.counter = 1;
+    this.completedLifetimeMs = 2400;
+    this.errorLifetimeMs = 7000;
+    this.maxVisibleSessions = 4;
+  }
+
+  createSession(prompt) {
+    const id = `session-${Date.now()}-${this.counter++}`;
+    const card = document.createElement('div');
+    card.className = 'session-card processing';
+    card.innerHTML = `
+      <div class="session-row">
+        <span class="session-dot" aria-hidden="true"></span>
+        <div class="session-copy">
+          <div class="session-prompt">${_escapeHtml(prompt)}</div>
+          <div class="session-status">Waiting for OpenClaw...</div>
+        </div>
+      </div>`;
+    this.container.appendChild(card);
+    this.sessions.set(id, { card, prompt, status: 'processing', removeTimer: null });
+    this.trimVisibleSessions();
+    this.scrollToLatest();
+    return id;
+  }
+
+  updateSession(id, { status, response, error }) {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    if (session.removeTimer) {
+      clearTimeout(session.removeTimer);
+      session.removeTimer = null;
+    }
+    session.status = status;
+    const statusDiv = session.card.querySelector('.session-status');
+    if (status === 'done') {
+      this.removeSession(id);
+    } else if (status === 'error') {
+      session.card.classList.remove('processing');
+      session.card.classList.add('error');
+      statusDiv.textContent = error || 'Request failed';
+      session.removeTimer = setTimeout(() => this.removeSession(id), this.errorLifetimeMs);
+    } else if (status === 'pending') {
+      session.card.classList.add('processing');
+      statusDiv.textContent = 'Still working...';
+    }
+    this.scrollToLatest();
+  }
+
+  removeSession(id) {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    if (session.removeTimer) {
+      clearTimeout(session.removeTimer);
+    }
+    session.card.classList.add('removing');
+    setTimeout(() => session.card.remove(), 220);
+    this.sessions.delete(id);
+  }
+
+  trimVisibleSessions() {
+    while (this.sessions.size > this.maxVisibleSessions) {
+      const oldestId = this.sessions.keys().next().value;
+      this.removeSession(oldestId);
+    }
+  }
+
+  scrollToLatest() {
+    requestAnimationFrame(() => {
+      this.container.scrollTop = this.container.scrollHeight;
+    });
+  }
+}
 import { AnimationEngine } from './animation_engine.js';
 import { TtsEngine } from './tts_engine.js';
 import { WakeWordEngine } from './wake_word.js';
@@ -5,6 +124,8 @@ import { RendererOpenClawClient } from './openclaw_client.js';
 import { RendererUiShell } from './ui_shell.js';
 
 const app = document.getElementById('app');
+const sessionStack = document.getElementById('session-stack');
+const sessionManager = new SessionManager(sessionStack);
 const pet = document.getElementById('pet');
 const petShell = document.getElementById('pet-shell');
 const accessories = document.getElementById('pet-accessories');
@@ -70,6 +191,7 @@ let pendingIdleActivityRestore = false;
 let lastActivityAt = 0;
 let audioIsActive = false;
 let audioDebounceTimer = null;
+let activeQueryCount = 0;
 
 const animationEngine = new AnimationEngine({
   app,
@@ -356,9 +478,11 @@ function showSpeech(text, timeoutMs = 8000) {
 function handleGatewayStatus(result) {
   if (!result?.ok) {
     if (result?.fromTray) {
-      setState('error');
+      if (activeQueryCount === 0) setState('error');
       showSpeech(`Status failed: ${result.error}`, 4200);
-      setTimeout(() => setState('idle'), 900);
+      setTimeout(() => {
+        if (activeQueryCount === 0) setState('idle');
+      }, 900);
     }
     return;
   }
@@ -368,7 +492,9 @@ function handleGatewayStatus(result) {
     : data.status || 'online';
   if (result.fromTray) {
     showSpeech(summary, 3200);
-    setState('idle');
+    if (activeQueryCount === 0) {
+      setState('idle');
+    }
   }
 }
 
@@ -377,6 +503,10 @@ const ttsEngine = new TtsEngine({
   animationEngine,
   onStart: () => setState('speaking'),
   onEnd: () => {
+    if (activeQueryCount > 0) {
+      setState('thinking');
+      return;
+    }
     setState('idle');
     animationEngine.scheduleQuirk();
   },
@@ -457,6 +587,18 @@ async function speak(text) {
   await ttsEngine.speak(plain);
 }
 
+function stopSpeaking() {
+  if (lastState !== 'speaking') return false;
+  ttsEngine.stop();
+  uiShell.stopBubbleReveal();
+  bubble.classList.add('hidden');
+  setState(activeQueryCount > 0 ? 'thinking' : 'idle');
+  if (activeQueryCount === 0) {
+    animationEngine.scheduleQuirk();
+  }
+  return true;
+}
+
 function stripMarkdown(md) {
   let text = md.replace(/```[\s\S]*?```/g, '');
   text = text.replace(/`([^`]+)`/g, '$1');
@@ -481,29 +623,68 @@ async function submitQuery(text) {
   composerPinned = false;
   textInput.value = '';
   interactionShell.classList.add('hidden');
+  activeQueryCount += 1;
   setState('thinking');
-  showSpeech('...', 0);
+  showSpeech("I'm on it.", 1600);
 
-  const result = await openclawClient.sendQuery(message);
-  if (!result.ok) {
-    setState('error');
-    const fallback = result.error || "I can't reach OpenClaw right now.";
-    showSpeech(fallback, 5200);
-    await speak(fallback);
-    setTimeout(() => {
-      setState('idle');
-      animationEngine.scheduleQuirk();
-    }, 1000);
-    return;
-  }
+  // Create a new session card
+  const sessionId = sessionManager.createSession(message);
 
-  showSpeech(result.text, 0);
-  await speak(result.text);
-  uiShell.finishBubbleReveal(result.text, 9000);
-  if (config.mute) {
-    setState('idle');
-    animationEngine.scheduleQuirk();
-  }
+  // Start the OpenClaw request
+  let inProgress = true;
+  (async () => {
+    try {
+      const result = await openclawClient.sendQuery(message);
+      // If backend returns a message, show it even if result.ok is false
+      if (result.text) {
+        sessionManager.updateSession(sessionId, { status: 'done', response: result.text });
+        showSpeech(result.text, 0);
+        await speak(result.text);
+        uiShell.finishBubbleReveal(result.text, 9000);
+        if (config.mute) {
+          setState('idle');
+          animationEngine.scheduleQuirk();
+        }
+      } else if (!result.ok) {
+        sessionManager.updateSession(sessionId, { status: 'error', error: result.error || "I can't reach OpenClaw right now." });
+        setState('error');
+        const fallback = result.error || "I can't reach OpenClaw right now.";
+        showSpeech(fallback, 5200);
+        await speak(fallback);
+        setTimeout(() => {
+          setState('idle');
+          animationEngine.scheduleQuirk();
+        }, 1000);
+      }
+    } catch (err) {
+      sessionManager.updateSession(sessionId, { status: 'error', error: err?.message || 'Unknown error' });
+      setState('error');
+      showSpeech('Request failed.', 5200);
+      setTimeout(() => {
+        if (activeQueryCount === 0) {
+          setState('idle');
+          animationEngine.scheduleQuirk();
+        }
+      }, 1000);
+    } finally {
+      activeQueryCount = Math.max(0, activeQueryCount - 1);
+      if (activeQueryCount > 0 && lastState !== 'speaking') {
+        setState('thinking');
+      } else if (activeQueryCount === 0 && lastState === 'thinking') {
+        setState('idle');
+        animationEngine.scheduleQuirk();
+      }
+      inProgress = false;
+    }
+  })();
+
+  // Poll for progress feedback
+  (async () => {
+    while (inProgress) {
+      sessionManager.updateSession(sessionId, { status: 'pending' });
+      await new Promise((res) => setTimeout(res, 2000));
+    }
+  })();
 }
 
 function normalizePhrase(value) {
@@ -641,28 +822,42 @@ async function saveSettingsForm() {
 }
 
 async function checkStatus() {
-  setState('thinking');
+  if (activeQueryCount === 0) setState('thinking');
   const status = await openclawClient.getStatus();
   handleGatewayStatus(status);
   if (!status.ok) {
-    setState('error');
+    if (activeQueryCount === 0) setState('error');
     showSpeech(`Status failed: ${status.error}`, 4200);
-    setTimeout(() => setState('idle'), 900);
+    setTimeout(() => {
+      if (activeQueryCount === 0) setState('idle');
+    }, 900);
     return;
   }
   const sessions = status.data?.sessions;
   const summary = sessions != null ? `Gateway online. ${sessions} active sessions.` : 'Gateway online.';
   showSpeech(summary, 3200);
-  setState('idle');
+  if (activeQueryCount === 0) setState('idle');
 }
 
 function installDragging() {
   pet.addEventListener('pointerdown', (event) => {
+    if (event.detail >= 2 && stopSpeaking()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     setInteractiveMode(true);
     dragState = { x: event.screenX, y: event.screenY };
     dragMoved = false;
     pet.classList.add('dragging');
     cancelActivityTimers();
+  });
+
+  pet.addEventListener('dblclick', (event) => {
+    if (stopSpeaking()) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   });
 
   window.addEventListener('pointermove', (event) => {

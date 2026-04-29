@@ -6,6 +6,10 @@ export class TtsEngine {
     this.onEnd = onEnd;
     this.onError = onError;
     this.onProgress = onProgress;
+    this.currentAudio = null;
+    this.currentObjectUrl = null;
+    this.cancelled = false;
+    this.runId = 0;
   }
 
   updateConfig(config) {
@@ -19,6 +23,9 @@ export class TtsEngine {
 
   async speak(text) {
     if (this.config.mute) return;
+    this.stop({ notify: false });
+    this.cancelled = false;
+    const runId = ++this.runId;
 
     if (this.config.tts?.usePiperTts) {
       return this._speakPiper(text);
@@ -48,6 +55,7 @@ export class TtsEngine {
     const msPerChar = Math.max(22, Math.round(52 / Math.max(utterance.rate || 1, 0.4)));
 
     const pushProgress = (nextIndex) => {
+      if (runId !== this.runId || this.cancelled) return;
       progressIndex = Math.max(progressIndex, Math.min(nextIndex, totalChars));
       this.onProgress?.(value.slice(0, progressIndex), progressIndex >= totalChars);
     };
@@ -73,18 +81,19 @@ export class TtsEngine {
         pushProgress(totalChars);
         this.animationEngine.stopSpeechAnimation();
         this.setAudioActive(false);
-        this.onEnd?.();
+        if (runId === this.runId && !this.cancelled) this.onEnd?.();
       },
       () => {
         clearInterval(fallbackTimer);
         this.animationEngine.stopSpeechAnimation();
         this.setAudioActive(false);
-        this.onError?.();
+        if (runId === this.runId && !this.cancelled) this.onError?.();
       },
     );
   }
 
   async _speakPiper(text) {
+    const runId = this.runId;
     const value = String(text || '');
     this.onStart?.();
     this.setAudioActive(true);
@@ -99,9 +108,15 @@ export class TtsEngine {
         return;
       }
 
+      if (runId !== this.runId || this.cancelled) {
+        return;
+      }
+
       const blob = new Blob([result.buffer], { type: 'audio/wav' });
       const url = URL.createObjectURL(blob);
+      this.currentObjectUrl = url;
       const audio = new Audio(url);
+      this.currentAudio = audio;
 
       await new Promise((resolve) => {
         audio.onended = resolve;
@@ -115,11 +130,35 @@ export class TtsEngine {
         });
       });
 
-      URL.revokeObjectURL(url);
+      if (this.currentObjectUrl === url) {
+        URL.revokeObjectURL(url);
+        this.currentObjectUrl = null;
+      }
     } finally {
+      this.currentAudio = null;
       this.animationEngine.stopSpeechAnimation();
       this.setAudioActive(false);
-      this.onEnd?.();
+      if (runId === this.runId && !this.cancelled) this.onEnd?.();
     }
+  }
+
+  stop({ notify = true } = {}) {
+    this.cancelled = true;
+    this.runId += 1;
+    window.speechSynthesis?.cancel?.();
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio.currentTime = 0;
+      this.currentAudio.src = '';
+      this.currentAudio.load();
+      this.currentAudio = null;
+    }
+    if (this.currentObjectUrl) {
+      URL.revokeObjectURL(this.currentObjectUrl);
+      this.currentObjectUrl = null;
+    }
+    this.animationEngine.stopSpeechAnimation();
+    this.setAudioActive(false);
+    if (notify) this.onEnd?.();
   }
 }
