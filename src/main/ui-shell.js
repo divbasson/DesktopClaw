@@ -52,6 +52,7 @@ class UiShell {
     });
 
     this.window.setAlwaysOnTop(this.config.alwaysOnTop, 'screen-saver');
+    this.enforceAlwaysOnTop();
     this.window.setSkipTaskbar(true);
     this.window.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
     this.window.setIgnoreMouseEvents(true, { forward: true }); // renderer mousemove manages this dynamically
@@ -85,14 +86,28 @@ class UiShell {
     this.window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl) => {
       logError('renderer-process', 'Renderer failed to load', { errorCode, errorDescription, validatedUrl });
     });
+    this.window.on('show', () => this.enforceAlwaysOnTop());
+    this.window.on('focus', () => this.enforceAlwaysOnTop());
+    this.window.on('blur', () => {
+      setTimeout(() => this.enforceAlwaysOnTop(), 50);
+    });
     return this.window;
   }
 
   applyConfig(config) {
     this.config = config;
     if (!this.window) return;
-    this.window.setAlwaysOnTop(config.alwaysOnTop, 'screen-saver');
+    this.enforceAlwaysOnTop();
     // setIgnoreMouseEvents is controlled dynamically by the renderer's mousemove hit-test.
+  }
+
+  enforceAlwaysOnTop() {
+    if (!this.window || this.window.isDestroyed()) return;
+    const enabled = this.config?.alwaysOnTop !== false;
+    this.window.setAlwaysOnTop(enabled, 'screen-saver', 1);
+    if (enabled) {
+      this.window.moveTop();
+    }
   }
 
   send(channel, payload) {
@@ -110,6 +125,7 @@ class UiShell {
     if (!this.window) return;
     if (this.window.isMinimized()) this.window.restore();
     this.window.show();
+    this.enforceAlwaysOnTop();
     this.window.focus();
   }
 

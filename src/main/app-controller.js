@@ -20,16 +20,27 @@ class AppController {
     this.uiShell = new UiShell(this.config);
     this.notifier = new Notifier();
     this.shortcutManager = new ShortcutManager({
-      onListen: () => this.uiShell.send('shortcut:listen'),
+      onListen: () => {
+        this.uiShell.showAndFocus();
+        this.uiShell.send('shortcut:listen');
+      },
       onToggleMute: () => this.setConfig({ ...this.config, mute: !this.config.mute }),
       onToggleVisibility: () => this.uiShell.toggleVisibility(),
       onOpenSettings: () => this.uiShell.send('settings:open'),
     });
     this.trayManager = new TrayManager({
-      onListen: () => this.uiShell.send('shortcut:listen'),
+      onListen: () => {
+        this.uiShell.showAndFocus();
+        this.uiShell.send('shortcut:listen');
+      },
       onToggleMute: () => this.setConfig({ ...this.config, mute: !this.config.mute }),
       onToggleVisibility: () => this.uiShell.toggleVisibility(),
       onOpenSettings: () => this.uiShell.send('settings:open'),
+      onStopSpeaking: () => this.uiShell.send('tray:command', 'stop-speaking'),
+      onHideReply: () => this.uiShell.send('tray:command', 'hide-reply'),
+      onCancelActive: () => this.uiShell.send('tray:command', 'cancel-active'),
+      onShowHistory: () => this.uiShell.send('tray:command', 'show-history'),
+      onShowDiagnostics: () => this.uiShell.send('tray:command', 'show-diagnostics'),
       onCheckStatus: () => this.refreshGatewayStatus({ notifyRenderer: true }),
       onRefreshModels: () => this.refreshModels({ notifyRenderer: true }),
       onSelectModel: (modelKey) => this.selectOpenClawModel(modelKey),
@@ -52,6 +63,16 @@ class AppController {
     ipcMain.handle('config:get', () => this.config);
     ipcMain.handle('config:set', (_event, nextConfig) => this.setConfig(nextConfig));
     ipcMain.handle('pet:query', async (_event, text) => this.safeCall(() => this.sendPetQuery(text)));
+    ipcMain.handle('pet:query-stream', async (event, payload) => {
+      const text = typeof payload === 'string' ? payload : payload?.text;
+      const requestId = typeof payload?.requestId === 'string' ? payload.requestId : null;
+      return this.safeCall(() => this.sendPetQuery(text, {
+        onProgress: (progress) => {
+          if (!requestId) return;
+          event.sender.send(`pet:query-progress:${requestId}`, progress);
+        },
+      }));
+    });
     ipcMain.handle('stt:listen-once', async (_event, options) => this.safeCall(() => this.nativeStt.listenOnce(options)));
     ipcMain.handle('tts:speak-piper', async (_event, text) => this.safeCall(() => this.nativeTts.synthesize({
       text,
@@ -99,11 +120,11 @@ class AppController {
     return this.config;
   }
 
-  async sendPetQuery(text) {
+  async sendPetQuery(text, options = {}) {
     const client = this.client;
     this.activeQueryClients.add(client);
     try {
-      return await client.sendQuery(text);
+      return await client.sendQuery(text, options);
     } finally {
       this.activeQueryClients.delete(client);
       if (client !== this.client) {

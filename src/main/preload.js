@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('desktopClaw', {
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config) => ipcRenderer.invoke('config:set', config),
   sendQuery: (text) => ipcRenderer.invoke('pet:query', text),
+  sendQueryStream: (payload) => ipcRenderer.invoke('pet:query-stream', payload),
   listenNativeOnce: (options) => ipcRenderer.invoke('stt:listen-once', options),
   speakPiper: (text) => ipcRenderer.invoke('tts:speak-piper', text),
   getStatus: () => ipcRenderer.invoke('pet:status'),
@@ -18,5 +19,12 @@ contextBridge.exposeInMainWorld('desktopClaw', {
   onShortcutStatus: (callback) => ipcRenderer.on('shortcut:status', callback),
   onGatewayStatus: (callback) => ipcRenderer.on('gateway:status', (_event, status) => callback(status)),
   onSettingsOpen: (callback) => ipcRenderer.on('settings:open', callback),
+  onTrayCommand: (callback) => ipcRenderer.on('tray:command', (_event, command) => callback(command)),
   onConfigUpdated: (callback) => ipcRenderer.on('config:updated', (_event, config) => callback(config)),
+  onQueryProgress: (requestId, callback) => {
+    const channel = `pet:query-progress:${requestId}`;
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  },
 });

@@ -915,8 +915,18 @@ class OpenClawClient {
     });
   }
 
-  async sendQuery(text) {
+  async sendQuery(text, options = {}) {
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+    const emitProgress = (event, details = {}) => {
+      onProgress?.({
+        event,
+        ts: Date.now(),
+        ...details,
+      });
+    };
+
     if (this.config.gateway.mode === 'mock') {
+      emitProgress('assistant-final', { text: `Mock OpenClaw response: I heard "${text}".` });
       return {
         ok: true,
         text: `Mock OpenClaw response: I heard "${text}". Switch gateway.mode to "gateway" and point the gateway URL at your OpenClaw WebSocket endpoint.`,
@@ -925,6 +935,7 @@ class OpenClawClient {
     }
 
     const sessionKey = this.config.gateway.sessionKey || DEFAULT_SESSION_KEY;
+    emitProgress('history-loading', { sessionKey });
     const before = await this.gatewayClient.request('chat.history', {
       sessionKey,
       limit: CHAT_HISTORY_LIMIT,
@@ -938,6 +949,7 @@ class OpenClawClient {
     const previousMaxSeq = previousMessages.reduce((max, message) => Math.max(max, getMessageSeq(message)), 0);
 
     const sendStartedAt = Date.now();
+    emitProgress('sending', { sessionKey });
     const sendResponse = await this.gatewayClient.request('chat.send', {
       sessionKey,
       message: text,
@@ -947,6 +959,7 @@ class OpenClawClient {
 
     const directResponseText = getTextFromGatewayResponse(sendResponse);
     if (directResponseText) {
+      emitProgress('assistant-final', { text: directResponseText, raw: sendResponse });
       return {
         ok: true,
         text: directResponseText,
@@ -955,6 +968,7 @@ class OpenClawClient {
     }
 
     const runId = typeof sendResponse?.runId === 'string' ? sendResponse.runId : null;
+    emitProgress('run-started', { runId, sessionKey });
     const deadline = Date.now() + Math.max(this.config.gateway.timeoutMs || 15000, CHAT_REPLY_TIMEOUT_MS);
     let resolvedText = '';
     let finalPayload = null;
@@ -971,16 +985,24 @@ class OpenClawClient {
         const state = String(payload.state || '').toLowerCase();
         const message = payload.message;
         const textFromEvent = getBestTextFromChatPayload(payload);
+        emitProgress('run-event', {
+          runId,
+          state,
+          hasText: !!textFromEvent,
+          text: textFromEvent || '',
+        });
         if (textFromEvent) {
           resolvedText = textFromEvent;
         }
 
         if (state === 'error') {
+          emitProgress('run-error', { runId, error: payload.errorMessage || 'Gateway chat run failed.' });
           reject(new Error(payload.errorMessage || 'Gateway chat run failed.'));
           return;
         }
 
         if (state === 'aborted') {
+          emitProgress('run-aborted', { runId });
           reject(new Error('Gateway chat run was aborted.'));
           return;
         }
@@ -994,6 +1016,7 @@ class OpenClawClient {
           }
 
           if (message && isAssistantMessage(message)) {
+            emitProgress('assistant-final', { runId, text: textFromEvent || '', raw: message });
             resolve({
               ok: true,
               text: textFromEvent || 'OpenClaw replied, but no text content was returned.',
@@ -1003,6 +1026,7 @@ class OpenClawClient {
           }
 
           if (resolvedText) {
+            emitProgress('assistant-final', { runId, text: resolvedText, raw: payload });
             resolve({
               ok: true,
               text: resolvedText,
@@ -1035,6 +1059,7 @@ class OpenClawClient {
         sessionKey,
         limit: CHAT_HISTORY_LIMIT,
       }).catch(() => null);
+      emitProgress('history-polled', { sessionKey, runId });
       const messages = Array.isArray(history?.messages) ? history.messages : [];
       const latestAssistant = findAssistantReplyAfterRequest(messages, {
         expectedText: text,
@@ -1047,9 +1072,11 @@ class OpenClawClient {
         stopListening?.();
         const latestText = getTextFromMessage(latestAssistant);
         if (isAssistantErrorMessage(latestAssistant)) {
+          emitProgress('run-error', { runId, error: latestText || 'Gateway chat run failed.' });
           throw new Error(latestText || 'Gateway chat run failed.');
         }
 
+        emitProgress('assistant-final', { runId, text: latestText || '', raw: latestAssistant });
         return {
           ok: true,
           text: latestText || 'OpenClaw replied, but no text content was returned.',
@@ -1059,6 +1086,7 @@ class OpenClawClient {
 
       if (finalPayload && resolvedText) {
         stopListening?.();
+        emitProgress('assistant-final', { runId, text: resolvedText, raw: finalPayload });
         return {
           ok: true,
           text: resolvedText,
@@ -1069,6 +1097,7 @@ class OpenClawClient {
 
     stopListening?.();
     if (resolvedText) {
+      emitProgress('assistant-final', { runId, text: resolvedText, raw: finalPayload || sendResponse });
       return {
         ok: true,
         text: resolvedText,

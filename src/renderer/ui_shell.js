@@ -53,6 +53,9 @@ export class RendererUiShell {
     this.stopBubbleReveal();
     this.bubble.innerHTML = renderMarkdown(text);
     this.bubble.classList.remove('hidden');
+    requestAnimationFrame(() => {
+      this.bubble.scrollTop = this.bubble.scrollHeight;
+    });
     clearTimeout(this._bubbleTimer);
     if (timeoutMs > 0) {
       this._bubbleTimer = setTimeout(() => this.bubble.classList.add('hidden'), timeoutMs);
@@ -96,6 +99,9 @@ export class RendererUiShell {
     this.stopBubbleReveal();
     this.bubble.innerHTML = renderMarkdown(text);
     this.bubble.classList.remove('hidden');
+    requestAnimationFrame(() => {
+      this.bubble.scrollTop = this.bubble.scrollHeight;
+    });
     clearTimeout(this._bubbleTimer);
     if (timeoutMs > 0) {
       this._bubbleTimer = setTimeout(() => this.bubble.classList.add('hidden'), timeoutMs);

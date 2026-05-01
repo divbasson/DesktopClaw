@@ -68,7 +68,7 @@
   <img width="240" height="300" alt="DesktopClaw avatar preview" src="https://github.com/user-attachments/assets/6a167d9e-c02a-45a0-a6ad-8459d6400dba" />
 </div>
 
-DesktopClaw is a transparent Electron desktop companion for OpenClaw. It sits on your Windows desktop as a small animated avatar, listens when you ask for attention, speaks OpenClaw responses back through local text-to-speech, and stays out of the way when a request is still running.
+DesktopClaw is a transparent Electron desktop companion for OpenClaw. It sits on your Windows desktop as a small animated avatar, gives OpenClaw a visible presence, speaks useful responses back through local text-to-speech, and keeps request state clear while work is still running.
 
 The goal is to make OpenClaw feel less like a background service and more like a present, responsive assistant. You can send a chat request, check gateway settings, change app options, or use the tray while the request continues. DesktopClaw keeps the active request alive and only removes the in-progress indicator when that specific request has a valid response.
 
@@ -78,10 +78,11 @@ What it does today:
 - Shows a draggable, transparent, always-on-top desktop avatar.
 - Accepts typed prompts and push-to-talk voice input.
 - Speaks responses with local Piper text-to-speech.
-- Tracks in-progress jobs as request-scoped visual indicators.
+- Streams OpenClaw run progress into request-scoped thought bubbles.
 - Handles long-lived OpenClaw sessions with interleaved user, tool, retry, and assistant messages.
 - Lets you double-click the avatar to interrupt speech.
-- Offers gateway status, model refresh, mute, visibility, settings, and quit actions from the system tray.
+- Offers gateway status, model refresh, mute, visibility, settings, history, diagnostics, and quit actions from the system tray.
+- Uses idle action sprites so the avatar can read, sleep, or work on a laptop when not actively busy.
 - Supports optional idle click-through behavior.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -142,15 +143,16 @@ DesktopClaw is designed to feel like a small companion rather than a static chat
 
 - Click or hover near the avatar to bring up the text input.
 - Type a request and press `Enter`.
-- Use `Ctrl+Shift+Space` to start voice capture.
-- Watch the compact request indicator while OpenClaw is working.
+- Use `Ctrl+Shift+Space` to bring DesktopClaw forward and focus the text box.
+- Watch compact thought-bubble request indicators while OpenClaw is working.
 - Continue using settings or the tray while a request is in progress.
 - Double-click the avatar while it is speaking to stop the current spoken response.
 - Use the tray menu for mute, visibility, settings, status checks, and model refresh.
+- Leave it idle and the avatar will occasionally read, sleep, or work on a laptop.
 
 Default hotkeys:
 
-- Listen: `Ctrl+Shift+Space`
+- Focus text input: `Ctrl+Shift+Space`
 - Mute: `Ctrl+Shift+M`
 - Show/hide: `Ctrl+Shift+H`
 - Settings: `Ctrl+Shift+S`
@@ -184,6 +186,8 @@ The app talks to OpenClaw through gateway methods such as:
 
 OpenClaw sessions are long-lived and can contain messages from the desktop app, other chat surfaces, tool calls, retries, model errors, and final assistant replies. DesktopClaw correlates replies to the matching user request instead of assuming the whole session represents one job.
 
+During an active request, DesktopClaw forwards OpenClaw run milestones to the renderer so the request indicator can show meaningful progress instead of a generic spinner. Late run events are ignored after a request reaches a terminal state, which prevents completed jobs from reappearing as active.
+
 Model listing is supported through OpenClaw. Session model switching depends on backend support and may be unavailable on some gateway versions.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -193,10 +197,11 @@ Model listing is supported through OpenClaw. Session model switching depends on 
 DesktopClaw supports native voice input and local speech output:
 
 - Voice input uses the native Vosk listener in `src/native/vosk_listener.py`.
-- Push-to-talk is available with the global listen hotkey.
+- The global shortcut focuses the text input for fast typed interaction.
 - Text-to-speech uses Piper when `tts.usePiperTts` is enabled.
 - The default Piper voice path is configured as `tts.piperModel`.
 - Double-click the avatar while it is speaking to stop the current spoken response.
+- Emoji and pictographic symbols are stripped from the TTS path so they remain visible in the reply bubble without being spoken aloud.
 
 Default Piper settings:
 
@@ -254,8 +259,12 @@ Build output is written to `dist/`. Release artifacts include an installer and a
 - [x] WebSocket OpenClaw gateway client.
 - [x] Native Vosk push-to-talk capture.
 - [x] Piper text-to-speech playback.
-- [x] Request-scoped job indicators.
+- [x] Request-scoped thought-bubble job indicators.
 - [x] Speech interruption by double-clicking the avatar.
+- [x] OpenClaw run-progress streaming into the renderer.
+- [x] Mood/presence styling for listening, thinking, speaking, success, and error states.
+- [x] Idle action sprites for reading, sleeping, and laptop work.
+- [x] Tray history and diagnostics panels.
 - [ ] Stronger packaged-app smoke tests for installer and standalone artifacts.
 - [ ] Deeper visual QA around transparent-window edge cases.
 - [ ] More polished first-run gateway pairing flow.
@@ -317,9 +326,12 @@ src/
 ## Development Notes
 
 - Keep request UI scoped to individual requests. Do not use OpenClaw session lifetime to decide whether a request indicator should remain visible.
+- Do not let progress events move a terminal request back into a working state.
 - OpenClaw may write transient assistant errors before a valid retry response. The client should prefer the first usable assistant text that follows the matching user message.
 - Settings changes should not close a gateway client that is still waiting for an active chat response.
 - The transparent window is sensitive to blurred layers near its edges; avoid large blurred rectangles that can reveal window bounds.
+- Idle action sprites should preserve the same visual scale and alpha baseline as `openclaw_agent_sprite.png`.
+- The TTS path should clean screen-only symbols such as emoji without changing the visible response bubble.
 - `npm run lint` is currently a placeholder script, so syntax checks and live gateway tests are still important.
 
 ---

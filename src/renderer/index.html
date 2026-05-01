@@ -43,10 +43,22 @@
 
       <div id="session-stack"></div>
       <div id="speech-bubble" class="hidden"></div>
+      <section id="history-panel" class="side-panel hidden" aria-label="Recent conversation">
+        <header>
+          <strong>Recent</strong>
+          <button id="history-close" title="Close history">Close</button>
+        </header>
+        <div id="history-list"></div>
+      </section>
+      <section id="diagnostics-panel" class="side-panel hidden" aria-label="DesktopClaw diagnostics">
+        <header>
+          <strong>Diagnostics</strong>
+          <button id="diagnostics-close" title="Close diagnostics">Close</button>
+        </header>
+        <dl id="diagnostics-list"></dl>
+      </section>
       <div id="status-pill">offline</div>
       <div id="notification-stack"></div>
-
-      <button id="settings-toggle" title="Settings">⚙</button>
 
       <section id="settings-panel" class="hidden">
         <h2>DesktopClaw</h2>
