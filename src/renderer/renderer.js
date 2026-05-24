@@ -63,10 +63,11 @@ const REQUEST_STATUS_TEXT = {
 };
 
 class RequestManager {
-  constructor({ container, historyList, diagnosticsList }) {
+  constructor({ container, historyList, diagnosticsList, onCancelRequest }) {
     this.container = container;
     this.historyList = historyList;
     this.diagnosticsList = diagnosticsList;
+    this.onCancelRequest = onCancelRequest;
     this.requests = new Map();
     this.history = [];
     this.counter = 1;
@@ -83,6 +84,16 @@ class RequestManager {
       model: 'unknown',
       updatedAt: Date.now(),
     };
+
+    this.container.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-action="cancel-request"]');
+      if (!button) return;
+      const requestId = button.getAttribute('data-request-id');
+      if (!requestId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.onCancelRequest?.(requestId);
+    });
   }
 
   createRequest(prompt, { source = 'Chat' } = {}) {
@@ -94,9 +105,21 @@ class RequestManager {
       <div class="session-row">
         <span class="session-dot" aria-hidden="true"></span>
         <div class="session-copy">
-          <div class="session-meta">
-            <span class="session-source">${_escapeHtml(source)}</span>
-            <span class="session-elapsed">0s</span>
+          <div class="session-head">
+            <div class="session-meta">
+              <span class="session-source">${_escapeHtml(source)}</span>
+              <span class="session-elapsed">0s</span>
+            </div>
+            <button
+              class="session-cancel"
+              type="button"
+              data-action="cancel-request"
+              data-request-id="${_escapeHtml(id)}"
+              aria-label="Cancel request"
+              title="Cancel request"
+            >
+              Cancel
+            </button>
           </div>
           <div class="session-prompt">${_escapeHtml(prompt)}</div>
           <div class="session-status">${REQUEST_STATUS_TEXT[REQUEST_STATES.QUEUED]}</div>
@@ -165,9 +188,16 @@ class RequestManager {
     if (error) request.error = error;
 
     request.card.className = `session-card state-${state}`;
+    request.card.dataset.state = state;
     const statusDiv = request.card.querySelector('.session-status');
+    const cancelButton = request.card.querySelector('.session-cancel');
     if (statusDiv) {
       statusDiv.textContent = status || error || REQUEST_STATUS_TEXT[state] || state;
+    }
+    if (cancelButton) {
+      const isTerminal = terminalStates.includes(state);
+      cancelButton.hidden = isTerminal;
+      cancelButton.disabled = isTerminal;
     }
 
     if (terminalStates.includes(state)) {
@@ -274,6 +304,7 @@ class RequestManager {
       prompt: request.prompt,
       response: request.response || request.error || REQUEST_STATUS_TEXT[request.state],
       state: request.state,
+      source: request.source,
       createdAt: request.createdAt,
       updatedAt: request.updatedAt,
     });
@@ -289,9 +320,13 @@ class RequestManager {
     }
     this.historyList.innerHTML = this.history.map((entry) => `
       <article class="history-item">
+        <div class="history-topline">
+          <span class="history-source">${_escapeHtml(entry.source || 'Chat')}</span>
+          <span class="history-state history-state-${_escapeHtml(entry.state)}">${_escapeHtml(entry.state)}</span>
+        </div>
         <div class="history-prompt">${_escapeHtml(this.truncate(entry.prompt, 140))}</div>
         <div class="history-response">${_escapeHtml(this.truncate(entry.response, 220))}</div>
-        <div class="history-meta">${_escapeHtml(entry.state)} · ${new Date(entry.updatedAt).toLocaleTimeString()}</div>
+        <div class="history-meta">${new Date(entry.updatedAt).toLocaleTimeString()} · ${this.formatElapsed(entry.updatedAt - entry.createdAt)}</div>
       </article>
     `).join('');
   }
@@ -322,6 +357,11 @@ class RequestManager {
     return text.length > limit ? `${text.slice(0, Math.max(0, limit - 1))}…` : text;
   }
 
+  formatElapsed(durationMs) {
+    const seconds = Math.max(0, Math.round(Number(durationMs || 0) / 1000));
+    return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  }
+
   scrollToLatest() {
     requestAnimationFrame(() => {
       this.container.scrollTop = this.container.scrollHeight;
@@ -346,6 +386,7 @@ const requestManager = new RequestManager({
   container: sessionStack,
   historyList,
   diagnosticsList,
+  onCancelRequest: (requestId) => cancelRequestFromUi(requestId),
 });
 const pet = document.getElementById('pet');
 const petShell = document.getElementById('pet-shell');
@@ -405,6 +446,7 @@ const ACTIVITY_MIN_MS = 9000;
 const ACTIVITY_MAX_MS = 17000;
 const IDLE_GAP_MIN_MS = 14000;
 const IDLE_GAP_MAX_MS = 28000;
+const REQUEST_PROGRESS_REASON = 'request-progress';
 
 let config;
 let dragState = null;
@@ -631,10 +673,29 @@ function beginActivity(name, reason = 'idle-random', durationMs = null) {
   }, lifetime);
 }
 
+function setProgressActivity(name) {
+  cancelActivityTimers();
+  currentActivity = name;
+  currentActivityReason = REQUEST_PROGRESS_REASON;
+  lastActivityAt = Date.now();
+  applyAccessoryActivity(name);
+}
+
+function clearProgressActivity() {
+  if (currentActivityReason !== REQUEST_PROGRESS_REASON) return;
+  currentActivity = null;
+  currentActivityReason = null;
+  clearAccessoryLayer();
+}
+
 function pauseActivityForState() {
   if (!currentActivity) return;
   if (currentActivity === 'music' && audioIsActive) {
     applyAccessoryActivity('music');
+    return;
+  }
+  if (currentActivityReason === REQUEST_PROGRESS_REASON) {
+    applyAccessoryActivity(currentActivity);
     return;
   }
   pendingIdleActivityRestore = currentActivityReason === 'idle-random';
@@ -727,6 +788,18 @@ function showSpeech(text, timeoutMs = 8000) {
   updateControlRail();
 }
 
+function cancelRequestFromUi(requestId) {
+  const cancelled = requestManager.cancelRequest(requestId);
+  if (!cancelled) return;
+  requestManager.setDiagnostics({ lastEvent: `ui-cancel: ${requestId}` });
+  if (requestManager.getActiveRequests().length === 0) {
+    clearProgressActivity();
+    stopSpeaking({ hideBubble: false, reason: 'ui-cancel-last-request' });
+    setState('idle');
+    animationEngine.scheduleQuirk();
+  }
+}
+
 function classifyOpenClawResult(result, request) {
   const text = String(result?.text || '').trim();
   const error = String(result?.error || '').trim();
@@ -756,29 +829,37 @@ function handleQueryProgress(requestId, progress) {
   const shortText = text ? requestManager.truncate(text, 96) : '';
 
   if (event === 'history-loading') {
+    setProgressActivity('reading');
     requestManager.transition(requestId, REQUEST_STATES.SENT, { status: 'Checking the thread before I answer.' });
     setMood('curious');
     return;
   }
   if (event === 'sending') {
+    setProgressActivity('coding');
     requestManager.transition(requestId, REQUEST_STATES.SENT, { status: 'Sent to OpenClaw. Waiting for the run.' });
     setMood('focused');
     return;
   }
   if (event === 'run-started') {
+    setProgressActivity('coding');
     requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: 'OpenClaw started working on it.' });
     setMood('focused');
     return;
   }
   if (event === 'history-polled') {
+    setProgressActivity('coding');
     requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: 'Still attached. Checking for the latest reply.' });
     return;
   }
   if (event === 'run-event') {
     if (state === 'final' || shortText) {
+      setProgressActivity('coding');
       requestManager.transition(requestId, REQUEST_STATES.RESPONDING, {
         status: shortText || 'OpenClaw is finalizing the reply.',
       });
+      if (text) {
+        uiShell.setBubbleText(text);
+      }
       setMood('speaking');
       return;
     }
@@ -788,13 +869,18 @@ function handleQueryProgress(requestId, progress) {
     return;
   }
   if (event === 'assistant-final') {
+    clearProgressActivity();
     requestManager.transition(requestId, REQUEST_STATES.RESPONDING, {
       status: shortText || 'Reply received. Preparing speech.',
     });
+    if (text) {
+      uiShell.setBubbleText(text);
+    }
     setMood('happy', 3600);
     return;
   }
   if (event === 'run-error' || event === 'run-aborted') {
+    clearProgressActivity();
     requestManager.transition(requestId, REQUEST_STATES.FAILED, {
       error: progress.error || 'OpenClaw stopped this run.',
     });
@@ -1029,18 +1115,20 @@ function prepareSpeechText(md) {
   return normalizeSpeechPunctuation(expandSpeechAbbreviations(text));
 }
 
-async function submitQuery(text) {
+async function submitQuery(text, options = {}) {
   const message = String(text || '').trim();
   if (!message) return;
+  const source = options.source || 'Chat';
 
   composerPinned = false;
   textInput.value = '';
   interactionShell.classList.add('hidden');
+  stopSpeaking({ hideBubble: false, reason: 'new-query' });
   activeQueryCount += 1;
   setState('thinking');
   showSpeech('I am on it.', 1600);
 
-  const requestId = requestManager.createRequest(message, { source: 'Chat' });
+  const requestId = requestManager.createRequest(message, { source });
   requestManager.transition(requestId, REQUEST_STATES.SENT, { status: REQUEST_STATUS_TEXT[REQUEST_STATES.SENT] });
   requestManager.scheduleProgress(requestId);
   requestManager.setDiagnostics({ lastEvent: `query sent: ${requestManager.truncate(message, 50)}` });
@@ -1060,6 +1148,7 @@ async function submitQuery(text) {
       }
 
       if (triage.type === 'assistant_final' || triage.type === 'needs_user_input') {
+        clearProgressActivity();
         requestManager.transition(requestId, REQUEST_STATES.RESPONDING, { status: REQUEST_STATUS_TEXT[REQUEST_STATES.RESPONDING] });
         requestManager.transition(requestId, REQUEST_STATES.COMPLETED, { response: triage.text });
         showSpeech(triage.text, 0);
@@ -1076,6 +1165,7 @@ async function submitQuery(text) {
       }
 
       if (triage.type === 'gateway_status') {
+        clearProgressActivity();
         requestManager.transition(requestId, REQUEST_STATES.COMPLETED, {
           response: triage.text || 'Gateway status received.',
         });
@@ -1083,6 +1173,7 @@ async function submitQuery(text) {
       }
 
       if (triage.type === 'transient_error') {
+        clearProgressActivity();
         const shouldSurface = triage.display && activeQueryCount <= 1;
         requestManager.transition(requestId, REQUEST_STATES.FAILED, {
           error: triage.text || "I can't reach OpenClaw right now.",
@@ -1099,6 +1190,7 @@ async function submitQuery(text) {
       }
     } catch (err) {
       if (requestManager.isCancelled(requestId)) return;
+      clearProgressActivity();
       requestManager.transition(requestId, REQUEST_STATES.FAILED, { error: err?.message || 'Unknown error' });
       setState('error');
       showSpeech('Request failed.', 5200);
@@ -1116,6 +1208,7 @@ async function submitQuery(text) {
       if (activeQueryCount > 0 && lastState !== 'speaking') {
         setState('thinking');
       } else if (activeQueryCount === 0 && lastState === 'thinking') {
+        clearProgressActivity();
         setState('idle');
         animationEngine.scheduleQuirk();
       }
@@ -1182,6 +1275,7 @@ async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
   wakeWordEngine.stop();
 
   try {
+    stopSpeaking({ hideBubble: false, reason: `voice-capture-${source}` });
     setState('listening');
     openComposer({ focus: false, clear: true });
 
@@ -1189,7 +1283,7 @@ async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
     if (inlineCommand) {
       showSpeech('Working on it...', 1200);
       textInput.value = inlineCommand;
-      await submitQuery(inlineCommand);
+      await submitQuery(inlineCommand, { source: source === 'wake' ? 'Wake' : 'Voice' });
       return;
     }
 
@@ -1220,7 +1314,7 @@ async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
     }
 
     textInput.value = transcript;
-    await submitQuery(transcript);
+    await submitQuery(transcript, { source: source === 'wake' ? 'Wake' : 'Voice' });
   } catch (error) {
     reportRuntimeIssue('Voice command capture failed', {
       source,
@@ -1419,10 +1513,17 @@ diagnosticsClose?.addEventListener('click', () => {
 });
 
 textInput.addEventListener('focus', () => {
+  stopSpeaking({ hideBubble: false, reason: 'text-input-focus' });
   composerPinned = true;
   clearTimeout(composerHideTimer);
   setInteractiveMode(true);
   cancelActivityTimers();
+});
+
+textInput.addEventListener('input', () => {
+  if (requestManager.diagnostics.tts === 'speaking' || lastState === 'speaking') {
+    stopSpeaking({ hideBubble: false, reason: 'text-input-interrupt' });
+  }
 });
 
 textInput.addEventListener('blur', () => {
