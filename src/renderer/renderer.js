@@ -403,6 +403,7 @@ const testStatus = document.getElementById('test-status');
 const fields = {
   wakeWord: document.getElementById('wake-word'),
   wakeWordEnabled: document.getElementById('wake-word-enabled'),
+  wakeMode: document.getElementById('wake-mode'),
   alwaysOnTop: document.getElementById('always-on-top'),
   mute: document.getElementById('mute'),
   volume: document.getElementById('volume'),
@@ -424,11 +425,12 @@ const fields = {
   hotkeyListen: document.getElementById('hotkey-listen'),
 };
 
-const RANDOM_ACTIVITY_POOL = ['reading', 'coding', 'sleeping'];
+const RANDOM_ACTIVITY_POOL = ['reading', 'coding', 'sleeping', 'thinking'];
 const ACTIVITY_CLASS_NAMES = [
   'activity-reading',
   'activity-coding',
   'activity-sleeping',
+  'activity-thinking',
   'activity-eating',
   'activity-music',
   'activity-musicOnly',
@@ -466,6 +468,7 @@ let audioDebounceTimer = null;
 let activeQueryCount = 0;
 let speechInterruptSerial = 0;
 let moodTimer = null;
+let progressActivityRequestId = null;
 
 const animationEngine = new AnimationEngine({
   app,
@@ -673,16 +676,24 @@ function beginActivity(name, reason = 'idle-random', durationMs = null) {
   }, lifetime);
 }
 
-function setProgressActivity(name) {
+function setProgressActivity(name, requestId = null) {
   cancelActivityTimers();
   currentActivity = name;
   currentActivityReason = REQUEST_PROGRESS_REASON;
+  progressActivityRequestId = requestId;
   lastActivityAt = Date.now();
   applyAccessoryActivity(name);
 }
 
-function clearProgressActivity() {
+function clearProgressActivity(requestId = null, { force = false } = {}) {
   if (currentActivityReason !== REQUEST_PROGRESS_REASON) return;
+  if (!force && requestId && progressActivityRequestId && progressActivityRequestId !== requestId) return;
+  const replacement = requestManager.getActiveRequests().find((request) => request.id !== requestId);
+  if (!force && replacement) {
+    setProgressActivity('coding', replacement.id);
+    return;
+  }
+  progressActivityRequestId = null;
   currentActivity = null;
   currentActivityReason = null;
   clearAccessoryLayer();
@@ -792,8 +803,8 @@ function cancelRequestFromUi(requestId) {
   const cancelled = requestManager.cancelRequest(requestId);
   if (!cancelled) return;
   requestManager.setDiagnostics({ lastEvent: `ui-cancel: ${requestId}` });
+  clearProgressActivity(requestId);
   if (requestManager.getActiveRequests().length === 0) {
-    clearProgressActivity();
     stopSpeaking({ hideBubble: false, reason: 'ui-cancel-last-request' });
     setState('idle');
     animationEngine.scheduleQuirk();
@@ -829,31 +840,31 @@ function handleQueryProgress(requestId, progress) {
   const shortText = text ? requestManager.truncate(text, 96) : '';
 
   if (event === 'history-loading') {
-    setProgressActivity('reading');
+    setProgressActivity('reading', requestId);
     requestManager.transition(requestId, REQUEST_STATES.SENT, { status: 'Checking the thread before I answer.' });
     setMood('curious');
     return;
   }
   if (event === 'sending') {
-    setProgressActivity('coding');
+    setProgressActivity('coding', requestId);
     requestManager.transition(requestId, REQUEST_STATES.SENT, { status: 'Sent to OpenClaw. Waiting for the run.' });
     setMood('focused');
     return;
   }
   if (event === 'run-started') {
-    setProgressActivity('coding');
+    setProgressActivity('coding', requestId);
     requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: 'OpenClaw started working on it.' });
     setMood('focused');
     return;
   }
   if (event === 'history-polled') {
-    setProgressActivity('coding');
+    setProgressActivity('coding', requestId);
     requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: 'Still attached. Checking for the latest reply.' });
     return;
   }
   if (event === 'run-event') {
     if (state === 'final' || shortText) {
-      setProgressActivity('coding');
+      setProgressActivity('coding', requestId);
       requestManager.transition(requestId, REQUEST_STATES.RESPONDING, {
         status: shortText || 'OpenClaw is finalizing the reply.',
       });
@@ -869,7 +880,7 @@ function handleQueryProgress(requestId, progress) {
     return;
   }
   if (event === 'assistant-final') {
-    clearProgressActivity();
+    clearProgressActivity(requestId);
     requestManager.transition(requestId, REQUEST_STATES.RESPONDING, {
       status: shortText || 'Reply received. Preparing speech.',
     });
@@ -880,7 +891,7 @@ function handleQueryProgress(requestId, progress) {
     return;
   }
   if (event === 'run-error' || event === 'run-aborted') {
-    clearProgressActivity();
+    clearProgressActivity(requestId);
     requestManager.transition(requestId, REQUEST_STATES.FAILED, {
       error: progress.error || 'OpenClaw stopped this run.',
     });
@@ -1029,7 +1040,7 @@ function applyConfig(nextConfig) {
     lastEvent: 'config-applied',
   });
   wakeWordEngine.stop();
-  if (config.wakeWordEnabled) {
+  if (shouldRunWakeWordListener()) {
     wakeWordEngine.start();
   }
   setInteractiveMode(false);
@@ -1042,6 +1053,10 @@ async function speak(text) {
   if (config.mute) return;
   const plain = prepareSpeechText(text);
   await ttsEngine.speak(plain);
+}
+
+function shouldRunWakeWordListener() {
+  return !!config?.wakeWordEnabled && config?.wakeMode === 'wakeWord';
 }
 
 function stopSpeaking({ hideBubble = false, reason = 'user-interrupt' } = {}) {
@@ -1148,7 +1163,7 @@ async function submitQuery(text, options = {}) {
       }
 
       if (triage.type === 'assistant_final' || triage.type === 'needs_user_input') {
-        clearProgressActivity();
+        clearProgressActivity(requestId);
         requestManager.transition(requestId, REQUEST_STATES.RESPONDING, { status: REQUEST_STATUS_TEXT[REQUEST_STATES.RESPONDING] });
         requestManager.transition(requestId, REQUEST_STATES.COMPLETED, { response: triage.text });
         showSpeech(triage.text, 0);
@@ -1165,7 +1180,7 @@ async function submitQuery(text, options = {}) {
       }
 
       if (triage.type === 'gateway_status') {
-        clearProgressActivity();
+        clearProgressActivity(requestId);
         requestManager.transition(requestId, REQUEST_STATES.COMPLETED, {
           response: triage.text || 'Gateway status received.',
         });
@@ -1173,7 +1188,7 @@ async function submitQuery(text, options = {}) {
       }
 
       if (triage.type === 'transient_error') {
-        clearProgressActivity();
+        clearProgressActivity(requestId);
         const shouldSurface = triage.display && activeQueryCount <= 1;
         requestManager.transition(requestId, REQUEST_STATES.FAILED, {
           error: triage.text || "I can't reach OpenClaw right now.",
@@ -1190,7 +1205,7 @@ async function submitQuery(text, options = {}) {
       }
     } catch (err) {
       if (requestManager.isCancelled(requestId)) return;
-      clearProgressActivity();
+      clearProgressActivity(requestId);
       requestManager.transition(requestId, REQUEST_STATES.FAILED, { error: err?.message || 'Unknown error' });
       setState('error');
       showSpeech('Request failed.', 5200);
@@ -1208,7 +1223,7 @@ async function submitQuery(text, options = {}) {
       if (activeQueryCount > 0 && lastState !== 'speaking') {
         setState('thinking');
       } else if (activeQueryCount === 0 && lastState === 'thinking') {
-        clearProgressActivity();
+        clearProgressActivity(requestId, { force: true });
         setState('idle');
         animationEngine.scheduleQuirk();
       }
@@ -1266,18 +1281,18 @@ function extractCommandFromWakeTranscript(transcript) {
   return '';
 }
 
-async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
+async function captureVoiceCommand(source = 'wake', wakeTranscript = '', options = {}) {
   if (voiceCaptureInFlight) return;
   voiceCaptureInFlight = true;
 
-  const shouldResumeWake = !!config?.wakeWordEnabled;
+  const shouldResumeWake = shouldRunWakeWordListener();
   let listeningCueStarted = false;
   wakeWordEngine.stop();
 
   try {
     stopSpeaking({ hideBubble: false, reason: `voice-capture-${source}` });
     setState('listening');
-    openComposer({ focus: false, clear: true });
+    openComposer({ focus: !!options.focusComposer, clear: true });
 
     const inlineCommand = extractCommandFromWakeTranscript(wakeTranscript);
     if (inlineCommand) {
@@ -1438,8 +1453,8 @@ function attachOptionalAudioHook() {
 }
 
 window.desktopClaw.onShortcutListen(() => {
-  openComposer({ focus: true, clear: false });
-  showSpeech('Type to me.', 1400);
+  requestManager.setDiagnostics({ lastEvent: 'voice-shortcut' });
+  void captureVoiceCommand('shortcut', '', { focusComposer: true });
 });
 window.desktopClaw.onShortcutStatus(() => checkStatus());
 window.desktopClaw.onGatewayStatus?.((status) => handleGatewayStatus(status));
@@ -1460,6 +1475,7 @@ function hideCurrentReply() {
 function cancelVisibleActiveRequests() {
   const count = requestManager.cancelActive();
   if (count > 0) {
+    clearProgressActivity(null, { force: true });
     stopSpeaking({ hideBubble: true, reason: 'tray-cancel-active' });
     setState('idle');
     showSpeech('Cancelled visible active work. Late replies will be ignored.', 2600);

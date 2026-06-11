@@ -11,7 +11,8 @@
     "pack": "electron-builder --dir",
     "dist:dir": "electron-builder --win dir",
     "dist": "electron-builder --win nsis portable",
-    "lint": "node -e \"console.log('No linter configured yet')\""
+    "lint": "eslint . --ext .js",
+    "test": "node scripts/test-request-lifecycle.js"
   },
   "build": {
     "appId": "com.openclaw.desktoppet",
@@ -49,6 +50,7 @@
   },
   "devDependencies": {
     "electron": "^39.8.9",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "eslint": "^8.57.1"
   }
 }

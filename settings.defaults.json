@@ -3,6 +3,7 @@
     "alwaysOnTop": true,
     "wakeWord": "hey claw",
     "wakeWordEnabled": true,
+    "wakeMode": "pushToTalk",
     "mute": false,
     "volume": 1,
     "clickThroughWhenIdle": false,

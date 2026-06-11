@@ -125,12 +125,25 @@ class AppController {
     this.activeQueryClients.add(client);
     try {
       return await client.sendQuery(text, options);
+    } catch (error) {
+      throw new Error(this.summarizeQueryError(error));
     } finally {
       this.activeQueryClients.delete(client);
       if (client !== this.client) {
         client.close();
       }
     }
+  }
+
+  summarizeQueryError(error) {
+    const message = error?.message || String(error || 'OpenClaw request failed.');
+    if (/protocol mismatch/i.test(message)) {
+      return 'OpenClaw rejected the chat write protocol. Status is reachable, but chat send is incompatible. Restart or update the OpenClaw gateway, and check the SSH tunnel target.';
+    }
+    if (/ECONNRESET|connection lost|socket hang up|WebSocket is not open/i.test(message)) {
+      return 'OpenClaw gateway connection was reset. Check that the gateway and SSH tunnel are still running, then try again.';
+    }
+    return message;
   }
 
   summarizeGatewayStatus(result) {
@@ -182,6 +195,9 @@ class AppController {
     if (/missing scope/i.test(message)) {
       return 'Needs operator.admin scope';
     }
+    if (/protocol mismatch/i.test(message)) {
+      return 'Gateway model API is incompatible with this OpenClaw endpoint';
+    }
     return message;
   }
 
@@ -192,11 +208,14 @@ class AppController {
         this.client.listModels(),
         this.client.getSessionModel(),
       ]);
+      const capabilities = this.client.getModelCapabilities();
       const state = {
         loading: false,
         models: models.models || [],
         current,
         error: '',
+        modelSwitchSupported: capabilities.modelSwitchSupported,
+        capabilityReason: capabilities.reason,
         checkedAt: Date.now(),
       };
       this.trayManager.setModelState(state);
@@ -227,6 +246,18 @@ class AppController {
   }
 
   async selectOpenClawModel(modelKey) {
+    const modelState = this.trayManager.modelState || {};
+    if (modelState.modelSwitchSupported === false) {
+      const summary = modelState.capabilityReason || 'Model switching is not supported by the current OpenClaw backend.';
+      this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });
+      this.uiShell.send('gateway:status', {
+        ok: false,
+        fromTray: true,
+        error: summary,
+      });
+      return { ok: false, error: summary };
+    }
+
     const adminConfig = {
       ...this.config,
       gateway: {
@@ -246,14 +277,20 @@ class AppController {
           }
         });
       } catch (err) {
-        // Model switching not supported
         const summary = 'Model switching is not supported by the current OpenClaw backend.';
-        this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });
+        this.trayManager.setModelState({
+          loading: false,
+          error: summary,
+          modelSwitchSupported: false,
+          capabilityReason: summary,
+          checkedAt: Date.now(),
+        });
         this.uiShell.send('gateway:status', {
+          ok: false,
           error: summary,
           fromTray: true,
         });
-        return;
+        return { ok: false, error: summary };
       }
     if (!result?.ok) {
       const summary = this.summarizeModelError(new Error(result?.error || 'Failed to set OpenClaw model.'));

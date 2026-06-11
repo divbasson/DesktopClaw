@@ -122,6 +122,7 @@ export class RendererUiShell {
     const gatewayMode = config.gateway.mode === 'http' ? 'gateway' : config.gateway.mode;
     this.fields.wakeWord.value = config.wakeWord;
     this.fields.wakeWordEnabled.checked = !!config.wakeWordEnabled;
+    this.fields.wakeMode.value = config.wakeMode || 'pushToTalk';
     this.fields.alwaysOnTop.checked = config.alwaysOnTop;
     this.fields.mute.checked = config.mute;
     this.fields.volume.value = config.volume;
@@ -159,6 +160,7 @@ export class RendererUiShell {
     const nextConfig = structuredClone(config);
     nextConfig.wakeWord = this.fields.wakeWord.value.trim();
     nextConfig.wakeWordEnabled = this.fields.wakeWordEnabled.checked;
+    nextConfig.wakeMode = this.fields.wakeMode.value || 'pushToTalk';
     nextConfig.alwaysOnTop = this.fields.alwaysOnTop.checked;
     nextConfig.mute = this.fields.mute.checked;
     nextConfig.volume = Number(this.fields.volume.value);

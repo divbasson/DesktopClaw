@@ -16,6 +16,8 @@ class TrayManager {
       models: [],
       current: null,
       error: '',
+      modelSwitchSupported: true,
+      capabilityReason: '',
       checkedAt: null,
     };
   }
@@ -63,6 +65,7 @@ class TrayManager {
         : ''
     );
     const currentModelLabel = currentModelKey || gateway.model || 'unknown';
+    const canSwitchModel = this.modelState.modelSwitchSupported !== false;
     const modelItems = this.modelState.models.length > 0
       ? this.modelState.models.map((model) => {
         const key = model.key || (model.provider && model.id ? `${model.provider}/${model.id}` : model.id);
@@ -72,12 +75,14 @@ class TrayManager {
           label: `${labelName}${provider}`,
           type: 'radio',
           checked: Boolean(key && currentModelKey && key === currentModelKey),
+          enabled: canSwitchModel,
           click: () => this.handlers.onSelectModel?.(key),
         };
       })
       : [{ label: this.modelState.loading ? 'Loading models...' : 'No models loaded', enabled: false }];
     const modelMenu = [
       { label: `Current: ${currentModelLabel}`, enabled: false },
+      ...(canSwitchModel ? [] : [{ label: this.modelState.capabilityReason || 'Model switching unavailable for this backend', enabled: false }]),
       ...(this.modelState.error ? [{ label: this.modelState.error, enabled: false }] : []),
       { type: 'separator' },
       { label: 'Refresh Models', click: () => this.handlers.onRefreshModels?.() },

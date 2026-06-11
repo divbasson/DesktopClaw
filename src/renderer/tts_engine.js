@@ -119,15 +119,24 @@ export class TtsEngine {
       this.currentAudio = audio;
 
       await new Promise((resolve) => {
-        audio.onended = resolve;
-        audio.onerror = (e) => {
-          console.warn('[TtsEngine] Piper audio playback error', e);
+        let settled = false;
+        const done = () => {
+          if (settled) return;
+          settled = true;
           resolve();
         };
-        audio.play().catch((e) => {
-          console.warn('[TtsEngine] Piper audio play() rejected', e);
-          resolve();
-        });
+
+        audio.onended = done;
+        audio.onerror = done;
+
+        const playPromise = audio.play();
+        if (playPromise?.catch) {
+          playPromise.catch(() => {
+            // Browser media policies and interrupted playback can reject play().
+            // Treat as non-fatal and continue the interaction flow.
+            done();
+          });
+        }
       });
 
       if (this.currentObjectUrl === url) {
