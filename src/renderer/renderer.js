@@ -689,23 +689,15 @@ function beginActivity(name, reason = 'idle-random', durationMs = null) {
   }, lifetime);
 }
 
-<<<<<<< HEAD
 function setProgressActivity(name, requestId = null) {
   cancelActivityTimers();
   currentActivity = name;
   currentActivityReason = REQUEST_PROGRESS_REASON;
   progressActivityRequestId = requestId;
-=======
-function setProgressActivity(name) {
-  cancelActivityTimers();
-  currentActivity = name;
-  currentActivityReason = REQUEST_PROGRESS_REASON;
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
   lastActivityAt = Date.now();
   applyAccessoryActivity(name);
 }
 
-<<<<<<< HEAD
 function clearProgressActivity(requestId = null, { force = false } = {}) {
   if (currentActivityReason !== REQUEST_PROGRESS_REASON) return;
   if (!force && requestId && progressActivityRequestId && progressActivityRequestId !== requestId) return;
@@ -715,10 +707,6 @@ function clearProgressActivity(requestId = null, { force = false } = {}) {
     return;
   }
   progressActivityRequestId = null;
-=======
-function clearProgressActivity() {
-  if (currentActivityReason !== REQUEST_PROGRESS_REASON) return;
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
   currentActivity = null;
   currentActivityReason = null;
   clearAccessoryLayer();
@@ -828,28 +816,19 @@ function cancelRequestFromUi(requestId) {
   const cancelled = requestManager.cancelRequest(requestId);
   if (!cancelled) return;
   requestManager.setDiagnostics({ lastEvent: `ui-cancel: ${requestId}` });
-<<<<<<< HEAD
   clearProgressActivity(requestId);
   if (requestManager.getActiveRequests().length === 0) {
-=======
-  if (requestManager.getActiveRequests().length === 0) {
-    clearProgressActivity();
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
     stopSpeaking({ hideBubble: false, reason: 'ui-cancel-last-request' });
     setState('idle');
     animationEngine.scheduleQuirk();
   }
 }
 
-<<<<<<< HEAD
 function getProviderLabel() {
   return config?.agent?.provider === 'hermes' ? 'Hermes' : 'OpenClaw';
 }
 
 function classifyAgentResult(result, request) {
-=======
-function classifyOpenClawResult(result, request) {
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
   const text = String(result?.text || '').trim();
   const error = String(result?.error || '').trim();
   const rawStatus = String(result?.data?.status || result?.raw?.status || '').toLowerCase();
@@ -878,55 +857,33 @@ function handleQueryProgress(requestId, progress) {
   const shortText = text ? requestManager.truncate(text, 96) : '';
 
   if (event === 'history-loading') {
-<<<<<<< HEAD
     setProgressActivity('reading', requestId);
-=======
-    setProgressActivity('reading');
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
     requestManager.transition(requestId, REQUEST_STATES.SENT, { status: 'Checking the thread before I answer.' });
     setMood('curious');
     return;
   }
   if (event === 'sending') {
-<<<<<<< HEAD
     const label = getProviderLabel();
     setProgressActivity('coding', requestId);
     requestManager.transition(requestId, REQUEST_STATES.SENT, { status: `Sent to ${label}. Waiting for the run.` });
-=======
-    setProgressActivity('coding');
-    requestManager.transition(requestId, REQUEST_STATES.SENT, { status: 'Sent to OpenClaw. Waiting for the run.' });
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
     setMood('focused');
     return;
   }
   if (event === 'run-started') {
-<<<<<<< HEAD
     const label = getProviderLabel();
     setProgressActivity('coding', requestId);
     requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: `${label} started working on it.` });
-=======
-    setProgressActivity('coding');
-    requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: 'OpenClaw started working on it.' });
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
     setMood('focused');
     return;
   }
   if (event === 'history-polled') {
-<<<<<<< HEAD
     setProgressActivity('coding', requestId);
-=======
-    setProgressActivity('coding');
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
     requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: 'Still attached. Checking for the latest reply.' });
     return;
   }
   if (event === 'run-event') {
     if (state === 'final' || shortText) {
-<<<<<<< HEAD
       setProgressActivity('coding', requestId);
-=======
-      setProgressActivity('coding');
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
       requestManager.transition(requestId, REQUEST_STATES.RESPONDING, {
         status: shortText || `${getProviderLabel()} is finalizing the reply.`,
       });
@@ -942,11 +899,7 @@ function handleQueryProgress(requestId, progress) {
     return;
   }
   if (event === 'assistant-final') {
-<<<<<<< HEAD
     clearProgressActivity(requestId);
-=======
-    clearProgressActivity();
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
     requestManager.transition(requestId, REQUEST_STATES.RESPONDING, {
       status: shortText || 'Reply received. Preparing speech.',
     });
@@ -957,11 +910,7 @@ function handleQueryProgress(requestId, progress) {
     return;
   }
   if (event === 'run-error' || event === 'run-aborted') {
-<<<<<<< HEAD
     clearProgressActivity(requestId);
-=======
-    clearProgressActivity();
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
     requestManager.transition(requestId, REQUEST_STATES.FAILED, {
       error: progress.error || `${getProviderLabel()} stopped this run.`,
     });
@@ -1234,11 +1183,7 @@ async function submitQuery(text, options = {}) {
       }
 
       if (triage.type === 'assistant_final' || triage.type === 'needs_user_input') {
-<<<<<<< HEAD
         clearProgressActivity(requestId);
-=======
-        clearProgressActivity();
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
         requestManager.transition(requestId, REQUEST_STATES.RESPONDING, { status: REQUEST_STATUS_TEXT[REQUEST_STATES.RESPONDING] });
         requestManager.transition(requestId, REQUEST_STATES.COMPLETED, { response: triage.text });
         showSpeech(triage.text, 0);
@@ -1255,11 +1200,7 @@ async function submitQuery(text, options = {}) {
       }
 
       if (triage.type === 'gateway_status') {
-<<<<<<< HEAD
         clearProgressActivity(requestId);
-=======
-        clearProgressActivity();
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
         requestManager.transition(requestId, REQUEST_STATES.COMPLETED, {
           response: triage.text || 'Gateway status received.',
         });
@@ -1267,11 +1208,7 @@ async function submitQuery(text, options = {}) {
       }
 
       if (triage.type === 'transient_error') {
-<<<<<<< HEAD
         clearProgressActivity(requestId);
-=======
-        clearProgressActivity();
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
         const shouldSurface = triage.display && activeQueryCount <= 1;
         requestManager.transition(requestId, REQUEST_STATES.FAILED, {
           error: triage.text || `I can't reach ${getProviderLabel()} right now.`,
@@ -1288,11 +1225,7 @@ async function submitQuery(text, options = {}) {
       }
     } catch (err) {
       if (requestManager.isCancelled(requestId)) return;
-<<<<<<< HEAD
       clearProgressActivity(requestId);
-=======
-      clearProgressActivity();
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
       requestManager.transition(requestId, REQUEST_STATES.FAILED, { error: err?.message || 'Unknown error' });
       setState('error');
       showSpeech('Request failed.', 5200);
@@ -1310,11 +1243,7 @@ async function submitQuery(text, options = {}) {
       if (activeQueryCount > 0 && lastState !== 'speaking') {
         setState('thinking');
       } else if (activeQueryCount === 0 && lastState === 'thinking') {
-<<<<<<< HEAD
         clearProgressActivity(requestId, { force: true });
-=======
-        clearProgressActivity();
->>>>>>> 7745292 (Make DesktopClaw feel more alive during active work)
         setState('idle');
         animationEngine.scheduleQuirk();
       }
