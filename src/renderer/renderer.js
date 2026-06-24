@@ -414,6 +414,7 @@ const fields = {
   pollIntervalMs: document.getElementById('poll-interval-ms'),
   showNotifications: document.getElementById('show-notifications'),
   speakNotifications: document.getElementById('speak-notifications'),
+  agentProvider: document.getElementById('agent-provider'),
   gatewayMode: document.getElementById('gateway-mode'),
   gatewayUrl: document.getElementById('gateway-url'),
   gatewayChatPath: document.getElementById('gateway-chat-path'),
@@ -422,6 +423,16 @@ const fields = {
   gatewayEventsEnabled: document.getElementById('gateway-events-enabled'),
   gatewayToken: document.getElementById('gateway-token'),
   gatewayPassword: document.getElementById('gateway-password'),
+  hermesMode: document.getElementById('hermes-mode'),
+  hermesUrl: document.getElementById('hermes-url'),
+  hermesChatPath: document.getElementById('hermes-chat-path'),
+  hermesStatusPath: document.getElementById('hermes-status-path'),
+  hermesModelsPath: document.getElementById('hermes-models-path'),
+  hermesSessionId: document.getElementById('hermes-session-id'),
+  hermesAgentId: document.getElementById('hermes-agent-id'),
+  hermesModel: document.getElementById('hermes-model'),
+  hermesToken: document.getElementById('hermes-token'),
+  hermesPassword: document.getElementById('hermes-password'),
   hotkeyListen: document.getElementById('hotkey-listen'),
 };
 
@@ -811,7 +822,11 @@ function cancelRequestFromUi(requestId) {
   }
 }
 
-function classifyOpenClawResult(result, request) {
+function getProviderLabel() {
+  return config?.agent?.provider === 'hermes' ? 'Hermes' : 'OpenClaw';
+}
+
+function classifyAgentResult(result, request) {
   const text = String(result?.text || '').trim();
   const error = String(result?.error || '').trim();
   const rawStatus = String(result?.data?.status || result?.raw?.status || '').toLowerCase();
@@ -828,7 +843,7 @@ function classifyOpenClawResult(result, request) {
   if (/requested model is not supported|retry|temporar|timeout|finished the run.*no assistant message/i.test(error)) {
     return { type: 'transient_error', text: error, display: false };
   }
-  if (!result?.ok) return { type: 'transient_error', text: error || "I can't reach OpenClaw right now.", display: true };
+  if (!result?.ok) return { type: 'transient_error', text: error || `I can't reach ${getProviderLabel()} right now.`, display: true };
   return { type: 'irrelevant_session_event', text: text || error, display: false };
 }
 
@@ -846,14 +861,16 @@ function handleQueryProgress(requestId, progress) {
     return;
   }
   if (event === 'sending') {
+    const label = getProviderLabel();
     setProgressActivity('coding', requestId);
-    requestManager.transition(requestId, REQUEST_STATES.SENT, { status: 'Sent to OpenClaw. Waiting for the run.' });
+    requestManager.transition(requestId, REQUEST_STATES.SENT, { status: `Sent to ${label}. Waiting for the run.` });
     setMood('focused');
     return;
   }
   if (event === 'run-started') {
+    const label = getProviderLabel();
     setProgressActivity('coding', requestId);
-    requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: 'OpenClaw started working on it.' });
+    requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: `${label} started working on it.` });
     setMood('focused');
     return;
   }
@@ -866,7 +883,7 @@ function handleQueryProgress(requestId, progress) {
     if (state === 'final' || shortText) {
       setProgressActivity('coding', requestId);
       requestManager.transition(requestId, REQUEST_STATES.RESPONDING, {
-        status: shortText || 'OpenClaw is finalizing the reply.',
+        status: shortText || `${getProviderLabel()} is finalizing the reply.`,
       });
       if (text) {
         uiShell.setBubbleText(text);
@@ -875,7 +892,7 @@ function handleQueryProgress(requestId, progress) {
       return;
     }
     requestManager.transition(requestId, REQUEST_STATES.WAITING, {
-      status: state ? `OpenClaw run event: ${state}.` : 'OpenClaw is still working.',
+      status: state ? `${getProviderLabel()} run event: ${state}.` : `${getProviderLabel()} is still working.`,
     });
     return;
   }
@@ -893,7 +910,7 @@ function handleQueryProgress(requestId, progress) {
   if (event === 'run-error' || event === 'run-aborted') {
     clearProgressActivity(requestId);
     requestManager.transition(requestId, REQUEST_STATES.FAILED, {
-      error: progress.error || 'OpenClaw stopped this run.',
+      error: progress.error || `${getProviderLabel()} stopped this run.`,
     });
     setMood('concerned', 5000);
   }
@@ -913,12 +930,13 @@ function updateDiagnosticsFromStatus(result, source = 'status') {
     return;
   }
   const data = result.data || {};
-  const model = data.model || data.current?.modelKey || config?.gateway?.model || 'unknown';
-  const agent = data.defaultAgentId || config?.gateway?.sessionKey || 'main';
+  const provider = config?.agent?.provider || 'openclaw';
+  const model = data.model || data.current?.modelKey || config?.gateway?.model || config?.hermes?.model || 'unknown';
+  const agent = data.defaultAgentId || config?.gateway?.sessionKey || config?.hermes?.sessionId || 'main';
   const status = data.status || data.state || 'online';
   const detail = data.sessions != null ? `${status}, ${data.sessions} sessions` : status;
   requestManager.setDiagnostics({
-    gateway: detail,
+    gateway: `${provider}: ${detail}`,
     agent,
     model,
     lastEvent: source,
@@ -1034,9 +1052,9 @@ function applyConfig(nextConfig) {
   wakeWordEngine.updateConfig(config);
   uiShell.bindSettings(config);
   requestManager.setDiagnostics({
-    gateway: config?.gateway?.mode || 'unknown',
-    agent: config?.gateway?.sessionKey || 'main',
-    model: config?.gateway?.model || 'unknown',
+    gateway: config?.agent?.provider || 'openclaw',
+    agent: config?.agent?.provider === 'hermes' ? (config?.hermes?.sessionId || 'main') : (config?.gateway?.sessionKey || 'main'),
+    model: config?.agent?.provider === 'hermes' ? (config?.hermes?.model || 'unknown') : (config?.gateway?.model || 'unknown'),
     lastEvent: 'config-applied',
   });
   wakeWordEngine.stop();
@@ -1155,7 +1173,7 @@ async function submitQuery(text, options = {}) {
     try {
       const result = await openclawClient.sendQuery(message, { requestId });
       const request = requestManager.getRequest(requestId);
-      const triage = classifyOpenClawResult(result, request);
+      const triage = classifyAgentResult(result, request);
       requestManager.setDiagnostics({ lastEvent: `triage: ${triage.type}` });
 
       if (requestManager.isCancelled(requestId) || triage.type === 'irrelevant_session_event') {
@@ -1191,7 +1209,7 @@ async function submitQuery(text, options = {}) {
         clearProgressActivity(requestId);
         const shouldSurface = triage.display && activeQueryCount <= 1;
         requestManager.transition(requestId, REQUEST_STATES.FAILED, {
-          error: triage.text || "I can't reach OpenClaw right now.",
+          error: triage.text || `I can't reach ${getProviderLabel()} right now.`,
         });
         setState('error');
         if (shouldSurface) {
@@ -1380,7 +1398,7 @@ async function checkStatus() {
     return;
   }
   const sessions = status.data?.sessions;
-  const summary = sessions != null ? `Gateway online. ${sessions} active sessions.` : 'Gateway online.';
+  const summary = sessions != null ? `${getProviderLabel()} online. ${sessions} active sessions.` : `${getProviderLabel()} online.`;
   if (activeQueryCount === 0) {
     showSpeech(summary, 3200);
   } else {
@@ -1567,6 +1585,9 @@ closeSettings.addEventListener('click', () => {
 });
 saveSettings.addEventListener('click', () => saveSettingsForm());
 testStatus.addEventListener('click', () => checkStatus());
+fields.agentProvider.addEventListener('change', () => {
+  uiShell.syncProviderSections(fields.agentProvider.value);
+});
 
 (async function init() {
   const logPath = await window.desktopClaw.getLogPath();

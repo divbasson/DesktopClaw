@@ -27,6 +27,7 @@ export class EventStream {
 
   restart() {
     this.stop();
+    if (this.config?.agent?.provider === 'hermes') return;
     if (!this.config?.gateway?.eventsEnabled || !this.config?.gateway?.eventsUrl) return;
     this.connect();
   }
