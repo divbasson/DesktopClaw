@@ -7,6 +7,7 @@ export class WakeWordEngine {
     this.enabled = false;
     this.running = false;
     this.cooldownUntil = 0;
+    this.consecutiveTimeouts = 0;
   }
 
   updateConfig(config) {
@@ -20,8 +21,12 @@ export class WakeWordEngine {
     return typeof this.listen === 'function';
   }
 
+  shouldListenForWakeWord() {
+    return !!this.config?.wakeWordEnabled && this.config?.wakeMode === 'wakeWord';
+  }
+
   start() {
-    if (!this.config?.wakeWordEnabled || !this.isSupported() || this.enabled) return false;
+    if (!this.shouldListenForWakeWord() || !this.isSupported() || this.enabled) return false;
     this.enabled = true;
     this.loop();
     return true;
@@ -77,11 +82,26 @@ export class WakeWordEngine {
     this.running = true;
 
     while (this.enabled) {
+      if (!this.shouldListenForWakeWord()) {
+        this.stop();
+        break;
+      }
+
       try {
         const result = await this.listen({
           timeoutSeconds: 6.5, // Increased for better user response window
           silenceSeconds: 1.5, // Increased to avoid cutting off replies
         });
+
+        const noSpeech = !result?.ok && /no speech detected before timeout/i.test(String(result?.error || ''));
+        if (noSpeech) {
+          this.consecutiveTimeouts += 1;
+          const delayMs = Math.min(2400, 220 * (2 ** Math.min(this.consecutiveTimeouts - 1, 4)));
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        this.consecutiveTimeouts = 0;
 
         const transcript = String(result?.text || '').trim().toLowerCase();
         const wakeWord = String(this.config?.wakeWord || '').trim().toLowerCase();
@@ -106,8 +126,13 @@ export class WakeWordEngine {
         const message = String(error?.message || error || '');
         const ignorable = /no speech detected before timeout/i.test(message);
         if (!ignorable) {
+          this.consecutiveTimeouts = 0;
           this.onLog?.('Wake word listener error', { message });
           await new Promise((resolve) => setTimeout(resolve, 1200));
+        } else {
+          this.consecutiveTimeouts += 1;
+          const delayMs = Math.min(2400, 220 * (2 ** Math.min(this.consecutiveTimeouts - 1, 4)));
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
       }
     }

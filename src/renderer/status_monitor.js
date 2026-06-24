@@ -7,6 +7,7 @@ export class StatusMonitor {
     this.config = { status: { pollEnabled: false, pollIntervalMs: 30000 } };
     this.timer = null;
     this.lastFingerprint = null;
+    this.failureCount = 0;
   }
 
   updateConfig(config) {
@@ -21,6 +22,7 @@ export class StatusMonitor {
 
   restart() {
     this.stop();
+    this.failureCount = 0;
     if (!this.config?.status?.pollEnabled) return;
     this.schedule(400);
   }
@@ -31,10 +33,25 @@ export class StatusMonitor {
   }
 
   async tick() {
-    const result = await this.client.getStatus();
+    let result;
+    try {
+      result = await this.client.getStatus();
+    } catch (error) {
+      this.failureCount += 1;
+      this.onError?.(error?.message || 'Gateway status request failed');
+      const base = this.config?.status?.pollIntervalMs || 30000;
+      const penalty = Math.min(base * 2, 5000 * this.failureCount);
+      const jitter = Math.floor(Math.random() * 250);
+      return this.schedule(base + penalty + jitter);
+    }
+
     if (!result.ok) {
+      this.failureCount += 1;
       this.onError?.(result.error);
-      return this.schedule();
+      const base = this.config?.status?.pollIntervalMs || 30000;
+      const penalty = Math.min(base * 2, 5000 * this.failureCount);
+      const jitter = Math.floor(Math.random() * 250);
+      return this.schedule(base + penalty + jitter);
     }
 
     const data = result.data || {};
@@ -44,6 +61,7 @@ export class StatusMonitor {
       this.onChange?.(data);
     }
     this.lastFingerprint = fingerprint;
+    this.failureCount = 0;
     this.schedule();
   }
 }

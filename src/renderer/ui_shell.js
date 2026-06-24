@@ -120,8 +120,10 @@ export class RendererUiShell {
 
   bindSettings(config) {
     const gatewayMode = config.gateway.mode === 'http' ? 'gateway' : config.gateway.mode;
+    const provider = config.agent?.provider === 'hermes' ? 'hermes' : 'openclaw';
     this.fields.wakeWord.value = config.wakeWord;
     this.fields.wakeWordEnabled.checked = !!config.wakeWordEnabled;
+    this.fields.wakeMode.value = config.wakeMode || 'pushToTalk';
     this.fields.alwaysOnTop.checked = config.alwaysOnTop;
     this.fields.mute.checked = config.mute;
     this.fields.volume.value = config.volume;
@@ -144,6 +146,7 @@ export class RendererUiShell {
     this.fields.pollIntervalMs.value = config.status.pollIntervalMs;
     this.fields.speakNotifications.checked = !!config.status.speakNotifications;
     this.fields.showNotifications.checked = !!config.status.showNotifications;
+    this.fields.agentProvider.value = provider;
     this.fields.gatewayMode.value = gatewayMode;
     this.fields.gatewayUrl.value = config.gateway.baseUrl;
     this.fields.gatewayChatPath.value = config.gateway.sessionKey || config.gateway.chatPath || 'main';
@@ -152,13 +155,28 @@ export class RendererUiShell {
     this.fields.gatewayEventsEnabled.checked = !!config.gateway.eventsEnabled;
     this.fields.gatewayToken.value = config.gateway.token;
     this.fields.gatewayPassword.value = config.gateway.password || '';
+    this.fields.hermesMode.value = config.hermes?.mode || 'openai';
+    this.fields.hermesUrl.value = config.hermes?.baseUrl || '';
+    this.fields.hermesChatPath.value = config.hermes?.chatPath || '/v1/chat/completions';
+    this.fields.hermesStatusPath.value = config.hermes?.statusPath || '/health';
+    this.fields.hermesModelsPath.value = config.hermes?.modelsPath || '/v1/models';
+    this.fields.hermesSessionId.value = config.hermes?.sessionId || 'main';
+    this.fields.hermesAgentId.value = config.hermes?.agentId || '';
+    this.fields.hermesModel.value = config.hermes?.model || '';
+    this.fields.hermesToken.value = config.hermes?.token || '';
+    this.fields.hermesPassword.value = config.hermes?.password || '';
     this.fields.hotkeyListen.value = config.globalHotkeys.listen;
+    this.syncProviderSections(provider);
   }
 
   collectSettings(config) {
     const nextConfig = structuredClone(config);
+    nextConfig.agent = nextConfig.agent || {};
+    nextConfig.gateway = nextConfig.gateway || {};
+    nextConfig.hermes = nextConfig.hermes || {};
     nextConfig.wakeWord = this.fields.wakeWord.value.trim();
     nextConfig.wakeWordEnabled = this.fields.wakeWordEnabled.checked;
+    nextConfig.wakeMode = this.fields.wakeMode.value || 'pushToTalk';
     nextConfig.alwaysOnTop = this.fields.alwaysOnTop.checked;
     nextConfig.mute = this.fields.mute.checked;
     nextConfig.volume = Number(this.fields.volume.value);
@@ -168,6 +186,7 @@ export class RendererUiShell {
     nextConfig.status.pollIntervalMs = Number(this.fields.pollIntervalMs.value) || 30000;
     nextConfig.status.speakNotifications = this.fields.speakNotifications.checked;
     nextConfig.status.showNotifications = this.fields.showNotifications.checked;
+    nextConfig.agent.provider = this.fields.agentProvider.value === 'hermes' ? 'hermes' : 'openclaw';
     nextConfig.gateway.mode = this.fields.gatewayMode.value;
     nextConfig.gateway.baseUrl = this.fields.gatewayUrl.value.trim();
     nextConfig.gateway.sessionKey = this.fields.gatewayChatPath.value.trim() || 'main';
@@ -178,7 +197,25 @@ export class RendererUiShell {
     nextConfig.gateway.eventsEnabled = this.fields.gatewayEventsEnabled.checked;
     nextConfig.gateway.token = this.fields.gatewayToken.value;
     nextConfig.gateway.password = this.fields.gatewayPassword.value;
+    nextConfig.hermes.mode = this.fields.hermesMode.value || 'openai';
+    nextConfig.hermes.baseUrl = this.fields.hermesUrl.value.trim();
+    nextConfig.hermes.chatPath = this.fields.hermesChatPath.value.trim() || '/v1/chat/completions';
+    nextConfig.hermes.statusPath = this.fields.hermesStatusPath.value.trim() || '/health';
+    nextConfig.hermes.modelsPath = this.fields.hermesModelsPath.value.trim() || '/v1/models';
+    nextConfig.hermes.sessionId = this.fields.hermesSessionId.value.trim() || 'main';
+    nextConfig.hermes.agentId = this.fields.hermesAgentId.value.trim();
+    nextConfig.hermes.model = this.fields.hermesModel.value.trim();
+    nextConfig.hermes.token = this.fields.hermesToken.value;
+    nextConfig.hermes.password = this.fields.hermesPassword.value;
     nextConfig.globalHotkeys.listen = this.fields.hotkeyListen.value.trim();
     return nextConfig;
+  }
+
+  syncProviderSections(provider = this.fields.agentProvider?.value || 'openclaw') {
+    const selected = provider === 'hermes' ? 'hermes' : 'openclaw';
+    const sections = this.settingsPanel.querySelectorAll('[data-provider-section]');
+    sections.forEach((section) => {
+      section.classList.toggle('hidden', section.dataset.providerSection !== selected);
+    });
   }
 }

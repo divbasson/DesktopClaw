@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const { ConfigStore } = require('./config-store');
 const { UiShell } = require('./ui-shell');
 const { ShortcutManager } = require('./shortcut-manager');
-const { OpenClawClient, ADMIN_OPERATOR_SCOPES } = require('./openclaw-client');
+const { ADMIN_OPERATOR_SCOPES, createAgentClient, getAgentLabel, getAgentProvider } = require('./agent-client');
 const { TrayManager } = require('./tray-manager');
 const { Notifier } = require('./notifier');
 const { NativeSttService } = require('./native-stt');
@@ -13,7 +13,7 @@ class AppController {
   constructor() {
     this.configStore = new ConfigStore();
     this.config = this.configStore.get();
-    this.client = new OpenClawClient(this.config);
+    this.client = createAgentClient(this.config);
     this.activeQueryClients = new Set();
     this.nativeStt = new NativeSttService();
     this.nativeTts = new NativeTtsService();
@@ -43,7 +43,7 @@ class AppController {
       onShowDiagnostics: () => this.uiShell.send('tray:command', 'show-diagnostics'),
       onCheckStatus: () => this.refreshGatewayStatus({ notifyRenderer: true }),
       onRefreshModels: () => this.refreshModels({ notifyRenderer: true }),
-      onSelectModel: (modelKey) => this.selectOpenClawModel(modelKey),
+      onSelectModel: (modelKey) => this.selectAgentModel(modelKey),
       onQuit: () => this.destroy(),
     });
   }
@@ -54,7 +54,7 @@ class AppController {
     this.trayManager.create(this.config);
     this.bindIpc();
     this.refreshModels({ silent: true }).catch((error) => {
-      logError('openclaw-models', 'Initial model refresh failed', error);
+      logError('agent-models', 'Initial model refresh failed', error);
     });
     logInfo('app-controller', 'Controller initialized');
   }
@@ -81,7 +81,7 @@ class AppController {
     })));
     ipcMain.handle('pet:status', async () => this.getGatewayStatus());
     ipcMain.handle('models:list', async () => this.refreshModels({ notifyRenderer: false }));
-    ipcMain.handle('models:set-current', async (_event, modelKey) => this.selectOpenClawModel(modelKey));
+    ipcMain.handle('models:set-current', async (_event, modelKey) => this.selectAgentModel(modelKey));
     ipcMain.handle('audio:set-active', (_event, active) => {
       this.uiShell.send('audio:active', !!active);
       return true;
@@ -108,11 +108,11 @@ class AppController {
       throw new Error(`Failed to save config: ${error.message}`);
     }
     if (this.activeQueryClients.has(previousClient)) {
-      logInfo('app-controller', 'Keeping previous OpenClaw client alive for active query');
+      logInfo('app-controller', 'Keeping previous agent client alive for active query');
     } else {
       previousClient?.close?.();
     }
-    this.client = new OpenClawClient(this.config);
+    this.client = createAgentClient(this.config);
     this.uiShell.applyConfig(this.config);
     this.shortcutManager.register(this.config);
     this.trayManager.setMenu(this.config);
@@ -125,6 +125,8 @@ class AppController {
     this.activeQueryClients.add(client);
     try {
       return await client.sendQuery(text, options);
+    } catch (error) {
+      throw new Error(this.summarizeQueryError(error));
     } finally {
       this.activeQueryClients.delete(client);
       if (client !== this.client) {
@@ -133,12 +135,28 @@ class AppController {
     }
   }
 
+  summarizeQueryError(error) {
+    const agentLabel = getAgentLabel(this.config);
+    const message = error?.message || String(error || `${agentLabel} request failed.`);
+    if (/protocol mismatch/i.test(message)) {
+      return `${agentLabel} rejected the chat write protocol. Status is reachable, but chat send is incompatible. Check the selected agent endpoint and chat path.`;
+    }
+    if (/ECONNRESET|connection lost|socket hang up|WebSocket is not open/i.test(message)) {
+      return `${agentLabel} connection was reset. Check that the agent service and tunnel are still running, then try again.`;
+    }
+    return message;
+  }
+
   summarizeGatewayStatus(result) {
-    const mode = this.config?.gateway?.mode || 'unknown';
+    const provider = getAgentProvider(this.config);
+    const agentLabel = getAgentLabel(this.config);
+    const mode = provider === 'hermes'
+      ? (this.config?.hermes?.mode || 'unknown')
+      : (this.config?.gateway?.mode || 'unknown');
     if (!result?.ok) {
       return {
         state: 'offline',
-        summary: 'Gateway: offline',
+        summary: `${agentLabel}: offline`,
         detail: result?.error || 'Status check failed.',
         checkedAt: Date.now(),
       };
@@ -151,7 +169,7 @@ class AppController {
     const status = data.status || (mode === 'mock' ? 'mock-online' : 'online');
     return {
       state: 'online',
-      summary: `Gateway: ${status}`,
+      summary: `${agentLabel}: ${status}`,
       detail: counts || `Mode: ${mode}`,
       checkedAt: Date.now(),
     };
@@ -182,6 +200,9 @@ class AppController {
     if (/missing scope/i.test(message)) {
       return 'Needs operator.admin scope';
     }
+    if (/protocol mismatch/i.test(message)) {
+      return `Model API is incompatible with this ${getAgentLabel(this.config)} endpoint`;
+    }
     return message;
   }
 
@@ -192,11 +213,14 @@ class AppController {
         this.client.listModels(),
         this.client.getSessionModel(),
       ]);
+      const capabilities = this.client.getModelCapabilities();
       const state = {
         loading: false,
         models: models.models || [],
         current,
         error: '',
+        modelSwitchSupported: capabilities.modelSwitchSupported,
+        capabilityReason: capabilities.reason,
         checkedAt: Date.now(),
       };
       this.trayManager.setModelState(state);
@@ -212,7 +236,7 @@ class AppController {
         });
       }
       if (!silent) {
-        logInfo('openclaw-models', 'OpenClaw models refreshed', {
+        logInfo('agent-models', `${getAgentLabel(this.config)} models refreshed`, {
           count: state.models.length,
           current: current.modelKey,
         });
@@ -221,12 +245,25 @@ class AppController {
     } catch (error) {
       const summary = this.summarizeModelError(error);
       this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });
-      logError('openclaw-models', 'OpenClaw model refresh failed', error);
+      logError('agent-models', `${getAgentLabel(this.config)} model refresh failed`, error);
       return { ok: false, error: summary };
     }
   }
 
-  async selectOpenClawModel(modelKey) {
+  async selectAgentModel(modelKey) {
+    const agentLabel = getAgentLabel(this.config);
+    const modelState = this.trayManager.modelState || {};
+    if (modelState.modelSwitchSupported === false) {
+      const summary = modelState.capabilityReason || `Model switching is not supported by the current ${agentLabel} backend.`;
+      this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });
+      this.uiShell.send('gateway:status', {
+        ok: false,
+        fromTray: true,
+        error: summary,
+      });
+      return { ok: false, error: summary };
+    }
+
     const adminConfig = {
       ...this.config,
       gateway: {
@@ -235,7 +272,7 @@ class AppController {
       },
     };
     this.trayManager.setModelState({ loading: true, error: '' });
-    const adminClient = new OpenClawClient(adminConfig);
+    const adminClient = createAgentClient(adminConfig);
       let result;
       try {
         result = await this.safeCall(async () => {
@@ -246,17 +283,23 @@ class AppController {
           }
         });
       } catch (err) {
-        // Model switching not supported
-        const summary = 'Model switching is not supported by the current OpenClaw backend.';
-        this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });
+        const summary = `Model switching is not supported by the current ${agentLabel} backend.`;
+        this.trayManager.setModelState({
+          loading: false,
+          error: summary,
+          modelSwitchSupported: false,
+          capabilityReason: summary,
+          checkedAt: Date.now(),
+        });
         this.uiShell.send('gateway:status', {
+          ok: false,
           error: summary,
           fromTray: true,
         });
-        return;
+        return { ok: false, error: summary };
       }
     if (!result?.ok) {
-      const summary = this.summarizeModelError(new Error(result?.error || 'Failed to set OpenClaw model.'));
+      const summary = this.summarizeModelError(new Error(result?.error || `Failed to set ${agentLabel} model.`));
       this.trayManager.setModelState({ loading: false, error: summary, checkedAt: Date.now() });
       this.uiShell.send('gateway:status', {
         ok: false,
@@ -271,22 +314,32 @@ class AppController {
       modelProvider: result.modelProvider,
       model: result.model,
     };
-    this.setConfig({
-      ...this.config,
-      gateway: {
-        ...(this.config.gateway || {}),
-        scopes: ADMIN_OPERATOR_SCOPES,
-        modelProvider: result.modelProvider,
-        model: result.model,
-      },
-    });
+    if (getAgentProvider(this.config) === 'hermes') {
+      this.setConfig({
+        ...this.config,
+        hermes: {
+          ...(this.config.hermes || {}),
+          model: result.model,
+        },
+      });
+    } else {
+      this.setConfig({
+        ...this.config,
+        gateway: {
+          ...(this.config.gateway || {}),
+          scopes: ADMIN_OPERATOR_SCOPES,
+          modelProvider: result.modelProvider,
+          model: result.model,
+        },
+      });
+    }
     this.trayManager.setModelState({
       loading: false,
       current: selected,
       error: '',
       checkedAt: Date.now(),
     });
-    logInfo('openclaw-models', 'OpenClaw session model selected', {
+    logInfo('agent-models', `${agentLabel} session model selected`, {
       model: result.modelKey,
       method: result.method,
     });

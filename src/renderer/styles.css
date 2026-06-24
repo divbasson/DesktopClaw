@@ -31,12 +31,18 @@
   font-size: 12px;
   color: rgba(18, 23, 26, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.92);
-  pointer-events: none;
+  pointer-events: auto;
   transition: opacity 220ms ease, transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
   min-width: 0;
   max-width: 100%;
   backdrop-filter: blur(16px);
   animation: sessionEnter 180ms ease-out;
+}
+.session-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
 }
 .session-card::before,
 .session-card::after {
@@ -127,7 +133,8 @@
 .session-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 3px;
   color: rgba(18, 23, 26, 0.46);
@@ -137,9 +144,31 @@
 }
 .session-source {
   color: rgba(20, 91, 108, 0.8);
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(20, 91, 108, 0.09);
 }
 .session-elapsed {
   font-variant-numeric: tabular-nums;
+}
+.session-cancel {
+  flex: 0 0 auto;
+  margin-top: -1px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(25, 35, 40, 0.12);
+  background: rgba(255,255,255,0.78);
+  color: rgba(21, 28, 33, 0.72);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  pointer-events: auto;
+}
+.session-cancel:hover {
+  background: rgba(255,255,255,0.96);
+}
+.session-cancel[hidden] {
+  display: none !important;
 }
 .session-prompt {
   font-weight: 700;
@@ -332,15 +361,31 @@ body {
 #pet.dragging { cursor: grabbing; }
 
 #pet.activity-reading {
-  background-image: url("../assets/sprites/openclaw_idle_reading.png");
+  background-image: url("../assets/sprites/openclaw_action_reading.png");
+  animation:
+    actionReadFloat 4.8s ease-in-out infinite,
+    petBreathe 4.4s ease-in-out infinite;
 }
 
 #pet.activity-sleeping {
-  background-image: url("../assets/sprites/openclaw_idle_sleeping.png");
+  background-image: url("../assets/sprites/openclaw_action_sleeping.png");
+  animation:
+    actionSleepFloat 5.8s ease-in-out infinite,
+    petBreathe 5.2s ease-in-out infinite;
 }
 
 #pet.activity-coding {
-  background-image: url("../assets/sprites/openclaw_idle_laptop.png");
+  background-image: url("../assets/sprites/openclaw_action_laptop.png");
+  animation:
+    actionCodeFloat 3.4s ease-in-out infinite,
+    petBreathe 4.4s ease-in-out infinite;
+}
+
+#pet.activity-thinking {
+  background-image: url("../assets/sprites/openclaw_action_thinking.png");
+  animation:
+    actionThinkFloat 3.8s ease-in-out infinite,
+    petBreathe 4.4s ease-in-out infinite;
 }
 
 #pet > :not(#pet-accessories) {
@@ -790,12 +835,53 @@ input, select {
 }
 
 .history-item {
-  padding: 9px 0;
+  position: relative;
+  padding: 10px 0 10px 18px;
   border-bottom: 1px solid rgba(255,255,255,0.07);
   font-size: 12px;
   line-height: 1.35;
 }
+.history-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 16px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(121, 223, 255, 0.92);
+  box-shadow: 0 0 0 4px rgba(121, 223, 255, 0.12);
+}
 .history-item:last-child { border-bottom: 0; }
+.history-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.history-source,
+.history-state {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.history-source {
+  color: rgba(121, 223, 255, 0.86);
+  background: rgba(121, 223, 255, 0.12);
+}
+.history-state {
+  color: rgba(245, 247, 251, 0.72);
+  background: rgba(255,255,255,0.08);
+}
+.history-state-completed { color: rgba(146, 255, 138, 0.88); }
+.history-state-failed,
+.history-state-interrupted,
+.history-state-cancelled { color: rgba(255, 160, 160, 0.9); }
 .history-prompt {
   color: rgba(245, 247, 251, 0.92);
   font-weight: 700;
@@ -877,6 +963,22 @@ input, select {
 }
 #settings-panel h2 { margin: 0 0 4px 0; font-size: 16px; }
 #settings-panel label { display: grid; gap: 4px; font-size: 12px; }
+#settings-panel fieldset {
+  border: 1px solid rgba(126, 214, 255, 0.22);
+  border-radius: 16px;
+  display: grid;
+  gap: 8px;
+  margin: 2px 0;
+  padding: 10px;
+}
+#settings-panel legend {
+  color: rgba(230, 247, 255, 0.82);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 0 6px;
+  text-transform: uppercase;
+}
 #settings-panel .actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1188,6 +1290,25 @@ button, input, select { font: inherit; }
 @keyframes petBreathe {
   0%, 100% { scale: 1; }
   50% { scale: 1.018 0.992; }
+}
+@keyframes actionReadFloat {
+  0%, 100% { transform: translateY(0) rotate(-0.4deg); }
+  35% { transform: translateY(-5px) rotate(0.8deg); }
+  68% { transform: translateY(-2px) rotate(-1.1deg); }
+}
+@keyframes actionCodeFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); filter: brightness(1); }
+  28% { transform: translateY(-4px) rotate(-0.8deg); filter: brightness(1.06); }
+  62% { transform: translateY(-2px) rotate(1deg); filter: brightness(0.98); }
+}
+@keyframes actionSleepFloat {
+  0%, 100% { transform: translateY(1px) rotate(0deg) scale(0.995); opacity: 0.98; }
+  50% { transform: translateY(-6px) rotate(0.8deg) scale(1.01); opacity: 1; }
+}
+@keyframes actionThinkFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); filter: hue-rotate(0deg) brightness(1); }
+  33% { transform: translateY(-5px) rotate(-1.2deg); filter: hue-rotate(5deg) brightness(1.06); }
+  66% { transform: translateY(-2px) rotate(1.1deg); filter: hue-rotate(-3deg) brightness(1.02); }
 }
 @keyframes microDrift {
   0%, 100% { filter: drop-shadow(0 0 0 transparent); }

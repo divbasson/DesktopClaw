@@ -16,6 +16,8 @@ class TrayManager {
       models: [],
       current: null,
       error: '',
+      modelSwitchSupported: true,
+      capabilityReason: '',
       checkedAt: null,
     };
   }
@@ -52,17 +54,22 @@ class TrayManager {
     if (!this.tray) return;
     this.config = config;
     const gateway = config?.gateway || {};
+    const hermes = config?.hermes || {};
+    const provider = config?.agent?.provider === 'hermes' ? 'hermes' : 'openclaw';
+    const providerLabel = provider === 'hermes' ? 'Hermes' : 'OpenClaw';
+    const activeConfig = provider === 'hermes' ? hermes : gateway;
     const checkedAt = this.status.checkedAt
       ? new Date(this.status.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : 'not checked';
-    const endpoint = gateway.baseUrl || gateway.eventsUrl || 'not configured';
+    const endpoint = activeConfig.baseUrl || activeConfig.eventsUrl || 'not configured';
     const currentModel = this.modelState.current;
     const currentModelKey = currentModel?.modelKey || (
       currentModel?.modelProvider && currentModel?.model
         ? `${currentModel.modelProvider}/${currentModel.model}`
         : ''
     );
-    const currentModelLabel = currentModelKey || gateway.model || 'unknown';
+    const currentModelLabel = currentModelKey || activeConfig.model || 'unknown';
+    const canSwitchModel = this.modelState.modelSwitchSupported !== false;
     const modelItems = this.modelState.models.length > 0
       ? this.modelState.models.map((model) => {
         const key = model.key || (model.provider && model.id ? `${model.provider}/${model.id}` : model.id);
@@ -72,12 +79,14 @@ class TrayManager {
           label: `${labelName}${provider}`,
           type: 'radio',
           checked: Boolean(key && currentModelKey && key === currentModelKey),
+          enabled: canSwitchModel,
           click: () => this.handlers.onSelectModel?.(key),
         };
       })
       : [{ label: this.modelState.loading ? 'Loading models...' : 'No models loaded', enabled: false }];
     const modelMenu = [
       { label: `Current: ${currentModelLabel}`, enabled: false },
+      ...(canSwitchModel ? [] : [{ label: this.modelState.capabilityReason || 'Model switching unavailable for this backend', enabled: false }]),
       ...(this.modelState.error ? [{ label: this.modelState.error, enabled: false }] : []),
       { type: 'separator' },
       { label: 'Refresh Models', click: () => this.handlers.onRefreshModels?.() },
@@ -89,7 +98,7 @@ class TrayManager {
       { label: 'Open Prompt', click: () => this.handlers.onListen?.() },
       { label: config.mute ? 'Unmute' : 'Mute', click: () => this.handlers.onToggleMute?.() },
       { type: 'separator' },
-      { label: 'OpenClaw Model', submenu: modelMenu },
+      { label: `${providerLabel} Model`, submenu: modelMenu },
       { type: 'separator' },
       { label: 'Stop Speaking', click: () => this.handlers.onStopSpeaking?.() },
       { label: 'Hide Reply', click: () => this.handlers.onHideReply?.() },
@@ -98,11 +107,12 @@ class TrayManager {
       { label: 'Show Diagnostics', click: () => this.handlers.onShowDiagnostics?.() },
       { type: 'separator' },
       { label: this.status.summary, enabled: false },
-      { label: `Mode: ${gateway.mode || 'unknown'}`, enabled: false },
+      { label: `System: ${providerLabel}`, enabled: false },
+      { label: `Mode: ${activeConfig.mode || 'unknown'}`, enabled: false },
       { label: `Endpoint: ${endpoint}`, enabled: false },
       { label: `Last check: ${checkedAt}`, enabled: false },
       { label: this.status.detail, enabled: false, visible: Boolean(this.status.detail) },
-      { label: 'Refresh Gateway Status', click: () => this.handlers.onCheckStatus?.() },
+      { label: 'Refresh Agent Status', click: () => this.handlers.onCheckStatus?.() },
       { type: 'separator' },
       { label: 'Open Settings', click: () => this.handlers.onOpenSettings?.() },
       { label: 'Check Status', click: () => this.handlers.onCheckStatus?.() },

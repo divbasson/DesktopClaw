@@ -1,8 +1,12 @@
 {
     "petName": "Claw",
+    "agent": {
+        "provider": "openclaw"
+    },
     "alwaysOnTop": true,
     "wakeWord": "hey claw",
     "wakeWordEnabled": true,
+    "wakeMode": "pushToTalk",
     "mute": false,
     "volume": 1,
     "clickThroughWhenIdle": false,
@@ -27,6 +31,21 @@
         "eventsUrl": "ws://localhost:18789",
         "eventsEnabled": false,
         "sessionKey": "main",
+        "token": "",
+        "password": "",
+        "timeoutMs": 30000
+    },
+    "hermes": {
+        "mode": "openai",
+        "baseUrl": "http://127.0.0.1:8642",
+        "chatPath": "/v1/chat/completions",
+        "statusPath": "/health",
+        "modelsPath": "/v1/models",
+        "eventsUrl": "",
+        "eventsEnabled": false,
+        "sessionId": "main",
+        "agentId": "",
+        "model": "",
         "token": "",
         "password": "",
         "timeoutMs": 30000

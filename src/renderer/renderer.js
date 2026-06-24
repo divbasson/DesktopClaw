@@ -38,7 +38,9 @@ function _escapeHtml(text) {
   return String(text)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 const REQUEST_STATES = {
   QUEUED: 'queued',
@@ -63,10 +65,11 @@ const REQUEST_STATUS_TEXT = {
 };
 
 class RequestManager {
-  constructor({ container, historyList, diagnosticsList }) {
+  constructor({ container, historyList, diagnosticsList, onCancelRequest }) {
     this.container = container;
     this.historyList = historyList;
     this.diagnosticsList = diagnosticsList;
+    this.onCancelRequest = onCancelRequest;
     this.requests = new Map();
     this.history = [];
     this.counter = 1;
@@ -83,6 +86,16 @@ class RequestManager {
       model: 'unknown',
       updatedAt: Date.now(),
     };
+
+    this.container.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-action="cancel-request"]');
+      if (!button) return;
+      const requestId = button.getAttribute('data-request-id');
+      if (!requestId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.onCancelRequest?.(requestId);
+    });
   }
 
   createRequest(prompt, { source = 'Chat' } = {}) {
@@ -94,9 +107,21 @@ class RequestManager {
       <div class="session-row">
         <span class="session-dot" aria-hidden="true"></span>
         <div class="session-copy">
-          <div class="session-meta">
-            <span class="session-source">${_escapeHtml(source)}</span>
-            <span class="session-elapsed">0s</span>
+          <div class="session-head">
+            <div class="session-meta">
+              <span class="session-source">${_escapeHtml(source)}</span>
+              <span class="session-elapsed">0s</span>
+            </div>
+            <button
+              class="session-cancel"
+              type="button"
+              data-action="cancel-request"
+              data-request-id="${_escapeHtml(id)}"
+              aria-label="Cancel request"
+              title="Cancel request"
+            >
+              Cancel
+            </button>
           </div>
           <div class="session-prompt">${_escapeHtml(prompt)}</div>
           <div class="session-status">${REQUEST_STATUS_TEXT[REQUEST_STATES.QUEUED]}</div>
@@ -165,9 +190,16 @@ class RequestManager {
     if (error) request.error = error;
 
     request.card.className = `session-card state-${state}`;
+    request.card.dataset.state = state;
     const statusDiv = request.card.querySelector('.session-status');
+    const cancelButton = request.card.querySelector('.session-cancel');
     if (statusDiv) {
       statusDiv.textContent = status || error || REQUEST_STATUS_TEXT[state] || state;
+    }
+    if (cancelButton) {
+      const isTerminal = terminalStates.includes(state);
+      cancelButton.hidden = isTerminal;
+      cancelButton.disabled = isTerminal;
     }
 
     if (terminalStates.includes(state)) {
@@ -274,6 +306,7 @@ class RequestManager {
       prompt: request.prompt,
       response: request.response || request.error || REQUEST_STATUS_TEXT[request.state],
       state: request.state,
+      source: request.source,
       createdAt: request.createdAt,
       updatedAt: request.updatedAt,
     });
@@ -289,9 +322,13 @@ class RequestManager {
     }
     this.historyList.innerHTML = this.history.map((entry) => `
       <article class="history-item">
+        <div class="history-topline">
+          <span class="history-source">${_escapeHtml(entry.source || 'Chat')}</span>
+          <span class="history-state history-state-${_escapeHtml(entry.state)}">${_escapeHtml(entry.state)}</span>
+        </div>
         <div class="history-prompt">${_escapeHtml(this.truncate(entry.prompt, 140))}</div>
         <div class="history-response">${_escapeHtml(this.truncate(entry.response, 220))}</div>
-        <div class="history-meta">${_escapeHtml(entry.state)} · ${new Date(entry.updatedAt).toLocaleTimeString()}</div>
+        <div class="history-meta">${new Date(entry.updatedAt).toLocaleTimeString()} · ${this.formatElapsed(entry.updatedAt - entry.createdAt)}</div>
       </article>
     `).join('');
   }
@@ -322,6 +359,11 @@ class RequestManager {
     return text.length > limit ? `${text.slice(0, Math.max(0, limit - 1))}…` : text;
   }
 
+  formatElapsed(durationMs) {
+    const seconds = Math.max(0, Math.round(Number(durationMs || 0) / 1000));
+    return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  }
+
   scrollToLatest() {
     requestAnimationFrame(() => {
       this.container.scrollTop = this.container.scrollHeight;
@@ -346,6 +388,7 @@ const requestManager = new RequestManager({
   container: sessionStack,
   historyList,
   diagnosticsList,
+  onCancelRequest: (requestId) => cancelRequestFromUi(requestId),
 });
 const pet = document.getElementById('pet');
 const petShell = document.getElementById('pet-shell');
@@ -362,6 +405,7 @@ const testStatus = document.getElementById('test-status');
 const fields = {
   wakeWord: document.getElementById('wake-word'),
   wakeWordEnabled: document.getElementById('wake-word-enabled'),
+  wakeMode: document.getElementById('wake-mode'),
   alwaysOnTop: document.getElementById('always-on-top'),
   mute: document.getElementById('mute'),
   volume: document.getElementById('volume'),
@@ -372,6 +416,7 @@ const fields = {
   pollIntervalMs: document.getElementById('poll-interval-ms'),
   showNotifications: document.getElementById('show-notifications'),
   speakNotifications: document.getElementById('speak-notifications'),
+  agentProvider: document.getElementById('agent-provider'),
   gatewayMode: document.getElementById('gateway-mode'),
   gatewayUrl: document.getElementById('gateway-url'),
   gatewayChatPath: document.getElementById('gateway-chat-path'),
@@ -380,14 +425,25 @@ const fields = {
   gatewayEventsEnabled: document.getElementById('gateway-events-enabled'),
   gatewayToken: document.getElementById('gateway-token'),
   gatewayPassword: document.getElementById('gateway-password'),
+  hermesMode: document.getElementById('hermes-mode'),
+  hermesUrl: document.getElementById('hermes-url'),
+  hermesChatPath: document.getElementById('hermes-chat-path'),
+  hermesStatusPath: document.getElementById('hermes-status-path'),
+  hermesModelsPath: document.getElementById('hermes-models-path'),
+  hermesSessionId: document.getElementById('hermes-session-id'),
+  hermesAgentId: document.getElementById('hermes-agent-id'),
+  hermesModel: document.getElementById('hermes-model'),
+  hermesToken: document.getElementById('hermes-token'),
+  hermesPassword: document.getElementById('hermes-password'),
   hotkeyListen: document.getElementById('hotkey-listen'),
 };
 
-const RANDOM_ACTIVITY_POOL = ['reading', 'coding', 'sleeping'];
+const RANDOM_ACTIVITY_POOL = ['reading', 'coding', 'sleeping', 'thinking'];
 const ACTIVITY_CLASS_NAMES = [
   'activity-reading',
   'activity-coding',
   'activity-sleeping',
+  'activity-thinking',
   'activity-eating',
   'activity-music',
   'activity-musicOnly',
@@ -405,6 +461,7 @@ const ACTIVITY_MIN_MS = 9000;
 const ACTIVITY_MAX_MS = 17000;
 const IDLE_GAP_MIN_MS = 14000;
 const IDLE_GAP_MAX_MS = 28000;
+const REQUEST_PROGRESS_REASON = 'request-progress';
 
 let config;
 let dragState = null;
@@ -424,6 +481,7 @@ let audioDebounceTimer = null;
 let activeQueryCount = 0;
 let speechInterruptSerial = 0;
 let moodTimer = null;
+let progressActivityRequestId = null;
 
 const animationEngine = new AnimationEngine({
   app,
@@ -631,10 +689,37 @@ function beginActivity(name, reason = 'idle-random', durationMs = null) {
   }, lifetime);
 }
 
+function setProgressActivity(name, requestId = null) {
+  cancelActivityTimers();
+  currentActivity = name;
+  currentActivityReason = REQUEST_PROGRESS_REASON;
+  progressActivityRequestId = requestId;
+  lastActivityAt = Date.now();
+  applyAccessoryActivity(name);
+}
+
+function clearProgressActivity(requestId = null, { force = false } = {}) {
+  if (currentActivityReason !== REQUEST_PROGRESS_REASON) return;
+  if (!force && requestId && progressActivityRequestId && progressActivityRequestId !== requestId) return;
+  const replacement = requestManager.getActiveRequests().find((request) => request.id !== requestId);
+  if (!force && replacement) {
+    setProgressActivity('coding', replacement.id);
+    return;
+  }
+  progressActivityRequestId = null;
+  currentActivity = null;
+  currentActivityReason = null;
+  clearAccessoryLayer();
+}
+
 function pauseActivityForState() {
   if (!currentActivity) return;
   if (currentActivity === 'music' && audioIsActive) {
     applyAccessoryActivity('music');
+    return;
+  }
+  if (currentActivityReason === REQUEST_PROGRESS_REASON) {
+    applyAccessoryActivity(currentActivity);
     return;
   }
   pendingIdleActivityRestore = currentActivityReason === 'idle-random';
@@ -727,7 +812,23 @@ function showSpeech(text, timeoutMs = 8000) {
   updateControlRail();
 }
 
-function classifyOpenClawResult(result, request) {
+function cancelRequestFromUi(requestId) {
+  const cancelled = requestManager.cancelRequest(requestId);
+  if (!cancelled) return;
+  requestManager.setDiagnostics({ lastEvent: `ui-cancel: ${requestId}` });
+  clearProgressActivity(requestId);
+  if (requestManager.getActiveRequests().length === 0) {
+    stopSpeaking({ hideBubble: false, reason: 'ui-cancel-last-request' });
+    setState('idle');
+    animationEngine.scheduleQuirk();
+  }
+}
+
+function getProviderLabel() {
+  return config?.agent?.provider === 'hermes' ? 'Hermes' : 'OpenClaw';
+}
+
+function classifyAgentResult(result, request) {
   const text = String(result?.text || '').trim();
   const error = String(result?.error || '').trim();
   const rawStatus = String(result?.data?.status || result?.raw?.status || '').toLowerCase();
@@ -744,7 +845,7 @@ function classifyOpenClawResult(result, request) {
   if (/requested model is not supported|retry|temporar|timeout|finished the run.*no assistant message/i.test(error)) {
     return { type: 'transient_error', text: error, display: false };
   }
-  if (!result?.ok) return { type: 'transient_error', text: error || "I can't reach OpenClaw right now.", display: true };
+  if (!result?.ok) return { type: 'transient_error', text: error || `I can't reach ${getProviderLabel()} right now.`, display: true };
   return { type: 'irrelevant_session_event', text: text || error, display: false };
 }
 
@@ -756,47 +857,62 @@ function handleQueryProgress(requestId, progress) {
   const shortText = text ? requestManager.truncate(text, 96) : '';
 
   if (event === 'history-loading') {
+    setProgressActivity('reading', requestId);
     requestManager.transition(requestId, REQUEST_STATES.SENT, { status: 'Checking the thread before I answer.' });
     setMood('curious');
     return;
   }
   if (event === 'sending') {
-    requestManager.transition(requestId, REQUEST_STATES.SENT, { status: 'Sent to OpenClaw. Waiting for the run.' });
+    const label = getProviderLabel();
+    setProgressActivity('coding', requestId);
+    requestManager.transition(requestId, REQUEST_STATES.SENT, { status: `Sent to ${label}. Waiting for the run.` });
     setMood('focused');
     return;
   }
   if (event === 'run-started') {
-    requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: 'OpenClaw started working on it.' });
+    const label = getProviderLabel();
+    setProgressActivity('coding', requestId);
+    requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: `${label} started working on it.` });
     setMood('focused');
     return;
   }
   if (event === 'history-polled') {
+    setProgressActivity('coding', requestId);
     requestManager.transition(requestId, REQUEST_STATES.WAITING, { status: 'Still attached. Checking for the latest reply.' });
     return;
   }
   if (event === 'run-event') {
     if (state === 'final' || shortText) {
+      setProgressActivity('coding', requestId);
       requestManager.transition(requestId, REQUEST_STATES.RESPONDING, {
-        status: shortText || 'OpenClaw is finalizing the reply.',
+        status: shortText || `${getProviderLabel()} is finalizing the reply.`,
       });
+      if (text) {
+        uiShell.setBubbleText(text);
+      }
       setMood('speaking');
       return;
     }
     requestManager.transition(requestId, REQUEST_STATES.WAITING, {
-      status: state ? `OpenClaw run event: ${state}.` : 'OpenClaw is still working.',
+      status: state ? `${getProviderLabel()} run event: ${state}.` : `${getProviderLabel()} is still working.`,
     });
     return;
   }
   if (event === 'assistant-final') {
+    clearProgressActivity(requestId);
     requestManager.transition(requestId, REQUEST_STATES.RESPONDING, {
       status: shortText || 'Reply received. Preparing speech.',
     });
+    if (text) {
+      uiShell.setBubbleText(text);
+    }
     setMood('happy', 3600);
     return;
   }
   if (event === 'run-error' || event === 'run-aborted') {
+    clearProgressActivity(requestId);
     requestManager.transition(requestId, REQUEST_STATES.FAILED, {
-      error: progress.error || 'OpenClaw stopped this run.',
+      error: progress.error || `${getProviderLabel()} stopped this run.`,
     });
     setMood('concerned', 5000);
   }
@@ -816,12 +932,13 @@ function updateDiagnosticsFromStatus(result, source = 'status') {
     return;
   }
   const data = result.data || {};
-  const model = data.model || data.current?.modelKey || config?.gateway?.model || 'unknown';
-  const agent = data.defaultAgentId || config?.gateway?.sessionKey || 'main';
+  const provider = config?.agent?.provider || 'openclaw';
+  const model = data.model || data.current?.modelKey || config?.gateway?.model || config?.hermes?.model || 'unknown';
+  const agent = data.defaultAgentId || config?.gateway?.sessionKey || config?.hermes?.sessionId || 'main';
   const status = data.status || data.state || 'online';
   const detail = data.sessions != null ? `${status}, ${data.sessions} sessions` : status;
   requestManager.setDiagnostics({
-    gateway: detail,
+    gateway: `${provider}: ${detail}`,
     agent,
     model,
     lastEvent: source,
@@ -937,13 +1054,13 @@ function applyConfig(nextConfig) {
   wakeWordEngine.updateConfig(config);
   uiShell.bindSettings(config);
   requestManager.setDiagnostics({
-    gateway: config?.gateway?.mode || 'unknown',
-    agent: config?.gateway?.sessionKey || 'main',
-    model: config?.gateway?.model || 'unknown',
+    gateway: config?.agent?.provider || 'openclaw',
+    agent: config?.agent?.provider === 'hermes' ? (config?.hermes?.sessionId || 'main') : (config?.gateway?.sessionKey || 'main'),
+    model: config?.agent?.provider === 'hermes' ? (config?.hermes?.model || 'unknown') : (config?.gateway?.model || 'unknown'),
     lastEvent: 'config-applied',
   });
   wakeWordEngine.stop();
-  if (config.wakeWordEnabled) {
+  if (shouldRunWakeWordListener()) {
     wakeWordEngine.start();
   }
   setInteractiveMode(false);
@@ -956,6 +1073,10 @@ async function speak(text) {
   if (config.mute) return;
   const plain = prepareSpeechText(text);
   await ttsEngine.speak(plain);
+}
+
+function shouldRunWakeWordListener() {
+  return !!config?.wakeWordEnabled && config?.wakeMode === 'wakeWord';
 }
 
 function stopSpeaking({ hideBubble = false, reason = 'user-interrupt' } = {}) {
@@ -1029,18 +1150,20 @@ function prepareSpeechText(md) {
   return normalizeSpeechPunctuation(expandSpeechAbbreviations(text));
 }
 
-async function submitQuery(text) {
+async function submitQuery(text, options = {}) {
   const message = String(text || '').trim();
   if (!message) return;
+  const source = options.source || 'Chat';
 
   composerPinned = false;
   textInput.value = '';
   interactionShell.classList.add('hidden');
+  stopSpeaking({ hideBubble: false, reason: 'new-query' });
   activeQueryCount += 1;
   setState('thinking');
   showSpeech('I am on it.', 1600);
 
-  const requestId = requestManager.createRequest(message, { source: 'Chat' });
+  const requestId = requestManager.createRequest(message, { source });
   requestManager.transition(requestId, REQUEST_STATES.SENT, { status: REQUEST_STATUS_TEXT[REQUEST_STATES.SENT] });
   requestManager.scheduleProgress(requestId);
   requestManager.setDiagnostics({ lastEvent: `query sent: ${requestManager.truncate(message, 50)}` });
@@ -1052,7 +1175,7 @@ async function submitQuery(text) {
     try {
       const result = await openclawClient.sendQuery(message, { requestId });
       const request = requestManager.getRequest(requestId);
-      const triage = classifyOpenClawResult(result, request);
+      const triage = classifyAgentResult(result, request);
       requestManager.setDiagnostics({ lastEvent: `triage: ${triage.type}` });
 
       if (requestManager.isCancelled(requestId) || triage.type === 'irrelevant_session_event') {
@@ -1060,6 +1183,7 @@ async function submitQuery(text) {
       }
 
       if (triage.type === 'assistant_final' || triage.type === 'needs_user_input') {
+        clearProgressActivity(requestId);
         requestManager.transition(requestId, REQUEST_STATES.RESPONDING, { status: REQUEST_STATUS_TEXT[REQUEST_STATES.RESPONDING] });
         requestManager.transition(requestId, REQUEST_STATES.COMPLETED, { response: triage.text });
         showSpeech(triage.text, 0);
@@ -1076,6 +1200,7 @@ async function submitQuery(text) {
       }
 
       if (triage.type === 'gateway_status') {
+        clearProgressActivity(requestId);
         requestManager.transition(requestId, REQUEST_STATES.COMPLETED, {
           response: triage.text || 'Gateway status received.',
         });
@@ -1083,9 +1208,10 @@ async function submitQuery(text) {
       }
 
       if (triage.type === 'transient_error') {
+        clearProgressActivity(requestId);
         const shouldSurface = triage.display && activeQueryCount <= 1;
         requestManager.transition(requestId, REQUEST_STATES.FAILED, {
-          error: triage.text || "I can't reach OpenClaw right now.",
+          error: triage.text || `I can't reach ${getProviderLabel()} right now.`,
         });
         setState('error');
         if (shouldSurface) {
@@ -1099,6 +1225,7 @@ async function submitQuery(text) {
       }
     } catch (err) {
       if (requestManager.isCancelled(requestId)) return;
+      clearProgressActivity(requestId);
       requestManager.transition(requestId, REQUEST_STATES.FAILED, { error: err?.message || 'Unknown error' });
       setState('error');
       showSpeech('Request failed.', 5200);
@@ -1116,6 +1243,7 @@ async function submitQuery(text) {
       if (activeQueryCount > 0 && lastState !== 'speaking') {
         setState('thinking');
       } else if (activeQueryCount === 0 && lastState === 'thinking') {
+        clearProgressActivity(requestId, { force: true });
         setState('idle');
         animationEngine.scheduleQuirk();
       }
@@ -1173,23 +1301,24 @@ function extractCommandFromWakeTranscript(transcript) {
   return '';
 }
 
-async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
+async function captureVoiceCommand(source = 'wake', wakeTranscript = '', options = {}) {
   if (voiceCaptureInFlight) return;
   voiceCaptureInFlight = true;
 
-  const shouldResumeWake = !!config?.wakeWordEnabled;
+  const shouldResumeWake = shouldRunWakeWordListener();
   let listeningCueStarted = false;
   wakeWordEngine.stop();
 
   try {
+    stopSpeaking({ hideBubble: false, reason: `voice-capture-${source}` });
     setState('listening');
-    openComposer({ focus: false, clear: true });
+    openComposer({ focus: !!options.focusComposer, clear: true });
 
     const inlineCommand = extractCommandFromWakeTranscript(wakeTranscript);
     if (inlineCommand) {
       showSpeech('Working on it...', 1200);
       textInput.value = inlineCommand;
-      await submitQuery(inlineCommand);
+      await submitQuery(inlineCommand, { source: source === 'wake' ? 'Wake' : 'Voice' });
       return;
     }
 
@@ -1220,7 +1349,7 @@ async function captureVoiceCommand(source = 'wake', wakeTranscript = '') {
     }
 
     textInput.value = transcript;
-    await submitQuery(transcript);
+    await submitQuery(transcript, { source: source === 'wake' ? 'Wake' : 'Voice' });
   } catch (error) {
     reportRuntimeIssue('Voice command capture failed', {
       source,
@@ -1271,7 +1400,7 @@ async function checkStatus() {
     return;
   }
   const sessions = status.data?.sessions;
-  const summary = sessions != null ? `Gateway online. ${sessions} active sessions.` : 'Gateway online.';
+  const summary = sessions != null ? `${getProviderLabel()} online. ${sessions} active sessions.` : `${getProviderLabel()} online.`;
   if (activeQueryCount === 0) {
     showSpeech(summary, 3200);
   } else {
@@ -1344,8 +1473,8 @@ function attachOptionalAudioHook() {
 }
 
 window.desktopClaw.onShortcutListen(() => {
-  openComposer({ focus: true, clear: false });
-  showSpeech('Type to me.', 1400);
+  requestManager.setDiagnostics({ lastEvent: 'voice-shortcut' });
+  void captureVoiceCommand('shortcut', '', { focusComposer: true });
 });
 window.desktopClaw.onShortcutStatus(() => checkStatus());
 window.desktopClaw.onGatewayStatus?.((status) => handleGatewayStatus(status));
@@ -1366,6 +1495,7 @@ function hideCurrentReply() {
 function cancelVisibleActiveRequests() {
   const count = requestManager.cancelActive();
   if (count > 0) {
+    clearProgressActivity(null, { force: true });
     stopSpeaking({ hideBubble: true, reason: 'tray-cancel-active' });
     setState('idle');
     showSpeech('Cancelled visible active work. Late replies will be ignored.', 2600);
@@ -1419,10 +1549,17 @@ diagnosticsClose?.addEventListener('click', () => {
 });
 
 textInput.addEventListener('focus', () => {
+  stopSpeaking({ hideBubble: false, reason: 'text-input-focus' });
   composerPinned = true;
   clearTimeout(composerHideTimer);
   setInteractiveMode(true);
   cancelActivityTimers();
+});
+
+textInput.addEventListener('input', () => {
+  if (requestManager.diagnostics.tts === 'speaking' || lastState === 'speaking') {
+    stopSpeaking({ hideBubble: false, reason: 'text-input-interrupt' });
+  }
 });
 
 textInput.addEventListener('blur', () => {
@@ -1450,6 +1587,9 @@ closeSettings.addEventListener('click', () => {
 });
 saveSettings.addEventListener('click', () => saveSettingsForm());
 testStatus.addEventListener('click', () => checkStatus());
+fields.agentProvider.addEventListener('change', () => {
+  uiShell.syncProviderSections(fields.agentProvider.value);
+});
 
 (async function init() {
   const logPath = await window.desktopClaw.getLogPath();

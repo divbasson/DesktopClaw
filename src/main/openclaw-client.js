@@ -5,7 +5,7 @@ const tls = require('node:tls');
 const { EventEmitter } = require('node:events');
 const { randomUUID, randomBytes, createHash, generateKeyPairSync, createPrivateKey, sign } = require('node:crypto');
 
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 const DEFAULT_SESSION_KEY = 'main';
 const DEFAULT_OPERATOR_SCOPES = ['operator.read', 'operator.write'];
 const ADMIN_OPERATOR_SCOPES = ['operator.read', 'operator.write', 'operator.admin'];
@@ -206,11 +206,21 @@ function normalizeGatewayError(error) {
     return 'Gateway rejected the device identity because the device id does not match the public key fingerprint.';
   }
 
-  return message;
+  const suffix = [
+    detailsCode ? `code=${detailsCode}` : '',
+    reason ? `reason=${reason}` : '',
+  ].filter(Boolean).join(', ');
+
+  return suffix ? `${message} (${suffix})` : message;
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableGatewayError(error) {
+  const message = String(error?.message || error || '');
+  return /\bECONNRESET\b|connection (?:lost|closed)|socket hang up|WebSocket is not open/i.test(message);
 }
 
 class MinimalWebSocket extends EventEmitter {
@@ -587,7 +597,10 @@ class GatewayWebSocketClient {
     this.pendingRequests = new Map();
     this.isReady = false;
     this.lastHello = null;
+    this.lastSocketError = null;
     this.eventSubscribers = new Set();
+    this.failureCount = 0;
+    this.circuitOpenUntil = 0;
   }
 
   async ensureConnected() {
@@ -612,7 +625,9 @@ class GatewayWebSocketClient {
     const storedTokenEntry = store.tokens?.[role];
     const configuredToken = gatewayConfig.token?.trim() || '';
     const configuredPassword = gatewayConfig.password?.trim() || '';
-    const authToken = configuredToken || storedTokenEntry?.deviceToken || '';
+    const storedDeviceToken = storedTokenEntry?.deviceToken || '';
+    const shouldUseStoredDeviceToken = !!storedDeviceToken && !configuredToken && !configuredPassword;
+    const authToken = configuredToken || (shouldUseStoredDeviceToken ? storedDeviceToken : '');
     const configuredScopes = getConfiguredScopes(this.config);
     const scopes = configuredScopes.some((scope) => !storedTokenEntry?.scopes?.includes(scope))
       ? configuredScopes
@@ -647,6 +662,7 @@ class GatewayWebSocketClient {
       permissions: {},
       auth: {
         ...(authToken ? { token: authToken } : {}),
+        ...(shouldUseStoredDeviceToken ? { deviceToken: storedDeviceToken } : {}),
         ...(configuredPassword ? { password: configuredPassword } : {}),
       },
       locale: Intl.DateTimeFormat().resolvedOptions().locale || 'en-US',
@@ -798,19 +814,30 @@ class GatewayWebSocketClient {
     });
   }
 
-  handleSocketError = () => {
-    // Most actionable close state is handled via close, but keep pending calls from hanging.
+  handleSocketError = (error) => {
+    this.lastSocketError = error;
+    this.isReady = false;
+    this.socket = null;
+    this.rejectPendingRequests(error || new Error('Gateway WebSocket error.'));
   };
 
   handleClose = () => {
     this.isReady = false;
     this.socket = null;
+    const error = this.lastSocketError || new Error('Gateway connection closed.');
+    this.lastSocketError = null;
+    this.rejectPendingRequests(error);
+  };
+
+  rejectPendingRequests(error) {
     const pending = [...this.pendingRequests.values()];
     this.pendingRequests.clear();
     for (const entry of pending) {
-      entry.reject(new Error('Gateway connection closed.'));
+      const cause = String(error?.message || error || 'connection closed');
+      const method = entry.method ? ` during ${entry.method}` : '';
+      entry.reject(new Error(`Gateway connection lost${method}: ${cause}`));
     }
-  };
+  }
 
   handleMessage = (rawMessage) => {
     let data;
@@ -851,6 +878,46 @@ class GatewayWebSocketClient {
   }
 
   async request(method, params = {}) {
+    if (Date.now() < this.circuitOpenUntil) {
+      throw new Error('Gateway is temporarily unavailable after repeated connection failures. Retrying soon.');
+    }
+
+    const retryDelaysMs = [220, 650, 1400];
+    try {
+      const result = await this.requestOnce(method, params);
+      this.failureCount = 0;
+      return result;
+    } catch (error) {
+      if (!isRetryableGatewayError(error)) {
+        throw error;
+      }
+
+      let lastError = error;
+      for (const baseDelay of retryDelaysMs) {
+        this.close();
+        const jitter = Math.floor(Math.random() * 170);
+        await sleep(baseDelay + jitter);
+        try {
+          const retryResult = await this.requestOnce(method, params);
+          this.failureCount = 0;
+          return retryResult;
+        } catch (nextError) {
+          lastError = nextError;
+          if (!isRetryableGatewayError(nextError)) {
+            throw nextError;
+          }
+        }
+      }
+
+      this.failureCount += 1;
+      if (this.failureCount >= 3) {
+        this.circuitOpenUntil = Date.now() + Math.min(12000, this.failureCount * 2000);
+      }
+      throw lastError;
+    }
+  }
+
+  async requestOnce(method, params = {}) {
     await this.ensureConnected();
     const id = randomUUID();
     const payload = {
@@ -868,6 +935,7 @@ class GatewayWebSocketClient {
       }, timeoutMs);
 
       this.pendingRequests.set(id, {
+        method,
         resolve: (value) => {
           clearTimeout(timer);
           resolve(value);
@@ -1189,9 +1257,88 @@ class OpenClawClient {
     const methods = ['sessions.setModel', 'sessions.update', 'chat.setModel'];
     const errors = [];
 
+    for (const method of methods) {
+      try {
+        const payload = await this.gatewayClient.request(method, params);
+        const resolvedProvider = String(payload?.modelProvider || modelProvider || '').trim();
+        const resolvedModel = String(payload?.model || model || '').trim();
+        const resolvedKey = resolvedProvider && resolvedModel
+          ? `${resolvedProvider}/${resolvedModel}`
+          : resolvedModel || modelKey;
+        return {
+          ok: true,
+          modelKey: resolvedKey,
+          modelProvider: resolvedProvider,
+          model: resolvedModel,
+          method,
+          raw: payload,
+        };
+      } catch (error) {
+        errors.push(error);
+        if (!this.isModelSwitchUnsupportedError(error)) {
+          throw error;
+        }
+      }
+    }
 
-      // Model switching is not supported by the backend
-      throw new Error('Model switching is not supported by the current OpenClaw backend.');
+    const combined = errors.map((error) => String(error?.message || error || '')).join('; ');
+    const unsupportedError = new Error('Model switching is not supported by the current OpenClaw backend.');
+    unsupportedError.code = 'MODEL_SWITCH_UNSUPPORTED';
+    unsupportedError.details = combined;
+    throw unsupportedError;
+  }
+
+  isModelSwitchUnsupportedError(error) {
+    const message = String(error?.message || error || '').toLowerCase();
+    return /unknown method|method not found|unsupported|not supported|protocol mismatch|not implemented/.test(message);
+  }
+
+  getModelCapabilities() {
+    if (this.config.gateway.mode === 'mock') {
+      return {
+        modelSwitchSupported: true,
+        reason: '',
+      };
+    }
+
+    const hello = this.gatewayClient.lastHello || {};
+    const methods = [];
+
+    const pushMethod = (value) => {
+      if (typeof value !== 'string') return;
+      const trimmed = value.trim();
+      if (trimmed) methods.push(trimmed);
+    };
+
+    if (Array.isArray(hello.commands)) {
+      for (const command of hello.commands) {
+        if (typeof command === 'string') {
+          pushMethod(command);
+          continue;
+        }
+        pushMethod(command?.method);
+        pushMethod(command?.name);
+      }
+    }
+
+    if (Array.isArray(hello.methods)) {
+      for (const method of hello.methods) {
+        pushMethod(method);
+      }
+    }
+
+    if (methods.length === 0) {
+      return {
+        modelSwitchSupported: true,
+        reason: '',
+      };
+    }
+
+    const hasSwitchMethod = methods.some((method) => ['sessions.setModel', 'sessions.update', 'chat.setModel'].includes(method));
+    return {
+      modelSwitchSupported: hasSwitchMethod,
+      reason: hasSwitchMethod ? '' : 'Model switching is not advertised by this gateway endpoint.',
+    };
   }
 
   async getStatus() {
