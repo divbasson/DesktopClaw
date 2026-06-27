@@ -47,14 +47,48 @@ export class RendererUiShell {
     this.fields = fields;
     this._revealTimer = null;
     this._bubbleTimer = null;
+    this._layoutTimer = null;
+    this._layoutObserver = null;
+
+    this.bubble.setAttribute('role', 'status');
+    this.bubble.setAttribute('aria-live', 'polite');
+    this.bubble.setAttribute('aria-atomic', 'true');
+
+    this._scheduleLayoutSync = this._scheduleLayoutSync.bind(this);
+    this._syncLayout = this._syncLayout.bind(this);
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this._scheduleLayoutSync, { passive: true });
+      window.addEventListener('orientationchange', this._scheduleLayoutSync, { passive: true });
+    }
+
+    const interactionShell = document.getElementById('interaction-shell');
+    if (interactionShell && typeof MutationObserver !== 'undefined') {
+      this._layoutObserver = new MutationObserver(this._scheduleLayoutSync);
+      this._layoutObserver.observe(interactionShell, {
+        attributes: true,
+        attributeFilter: ['class', 'style'],
+      });
+    }
+
+    this._scheduleLayoutSync();
   }
 
-  setBubble(text, timeoutMs = 8000) {
+  presentBubble(text, { markdown = true, timeoutMs = 8000, scroll = 'top' } = {}) {
+    const value = String(text || '');
     this.stopBubbleReveal();
-    this.bubble.innerHTML = renderMarkdown(text);
-    this.bubble.classList.remove('hidden');
+    this.bubble.classList.remove('hidden', 'bubble-short', 'bubble-long', 'bubble-empty');
+    this.bubble.classList.add(value.length > 220 || value.includes('\n') ? 'bubble-long' : 'bubble-short');
+    this.bubble.innerHTML = markdown ? renderMarkdown(value) : _escapeHtml(value);
+    this._scheduleLayoutSync();
     requestAnimationFrame(() => {
-      this.bubble.scrollTop = this.bubble.scrollHeight;
+      if (scroll === 'bottom') {
+        this.bubble.scrollTop = this.bubble.scrollHeight;
+      } else if (scroll === 'preserve') {
+        this.bubble.scrollTop = Math.min(this.bubble.scrollTop, this.bubble.scrollHeight);
+      } else {
+        this.bubble.scrollTop = 0;
+      }
     });
     clearTimeout(this._bubbleTimer);
     if (timeoutMs > 0) {
@@ -62,11 +96,17 @@ export class RendererUiShell {
     }
   }
 
+  setBubble(text, timeoutMs = 8000) {
+    this.presentBubble(text, { timeoutMs });
+  }
+
   startBubbleReveal(text, durationMs = 3200) {
     this.stopBubbleReveal();
     const value = String(text || '');
     this.bubble.textContent = '';
-    this.bubble.classList.remove('hidden');
+    this.bubble.classList.remove('hidden', 'bubble-short', 'bubble-long', 'bubble-empty');
+    this.bubble.classList.add(value.length > 220 || value.includes('\n') ? 'bubble-long' : 'bubble-short');
+    this._scheduleLayoutSync();
     clearTimeout(this._bubbleTimer);
 
     if (!value) return;
@@ -78,7 +118,7 @@ export class RendererUiShell {
     const tick = () => {
       index = Math.min(index + 1, totalChars);
       this.bubble.textContent = value.slice(0, index);
-      this.bubble.scrollTop = this.bubble.scrollHeight;
+      this.scrollBubbleToCurrent();
       if (index < totalChars) {
         this._revealTimer = setTimeout(tick, frameMs);
       } else {
@@ -89,23 +129,24 @@ export class RendererUiShell {
     tick();
   }
 
-  setBubbleText(text) {
-    this.bubble.classList.remove('hidden');
-    this.bubble.textContent = String(text || '');
-    this.bubble.scrollTop = this.bubble.scrollHeight;
+  scrollBubbleToCurrent() {
+    requestAnimationFrame(() => {
+      const maxScrollTop = Math.max(0, this.bubble.scrollHeight - this.bubble.clientHeight);
+      this.bubble.scrollTop = maxScrollTop;
+    });
   }
 
-  finishBubbleReveal(text, timeoutMs = 8000) {
-    this.stopBubbleReveal();
-    this.bubble.innerHTML = renderMarkdown(text);
-    this.bubble.classList.remove('hidden');
-    requestAnimationFrame(() => {
-      this.bubble.scrollTop = this.bubble.scrollHeight;
-    });
-    clearTimeout(this._bubbleTimer);
-    if (timeoutMs > 0) {
-      this._bubbleTimer = setTimeout(() => this.bubble.classList.add('hidden'), timeoutMs);
-    }
+  setBubbleText(text) {
+    const value = String(text || '');
+    this.bubble.classList.remove('hidden', 'bubble-short', 'bubble-long', 'bubble-empty');
+    this.bubble.classList.add(value.length > 220 || value.includes('\n') ? 'bubble-long' : 'bubble-short');
+    this.bubble.textContent = value;
+    this._scheduleLayoutSync();
+    this.scrollBubbleToCurrent();
+  }
+
+  finishBubbleReveal(text, timeoutMs = 8000, { scroll = 'bottom' } = {}) {
+    this.presentBubble(text, { timeoutMs, scroll });
   }
 
   stopBubbleReveal() {
@@ -113,9 +154,45 @@ export class RendererUiShell {
     this._revealTimer = null;
   }
 
+  _scheduleLayoutSync() {
+    if (this._layoutTimer != null) return;
+    this._layoutTimer = requestAnimationFrame(() => {
+      this._layoutTimer = null;
+      this._syncLayout();
+    });
+  }
+
+  _syncLayout() {
+    const app = document.getElementById('app');
+    const petShell = document.getElementById('pet-shell');
+    const interactionShell = document.getElementById('interaction-shell');
+    if (!app) return;
+
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const petRect = petShell?.getBoundingClientRect?.() || null;
+    const bubbleTop = 14;
+    const bubbleSafeHeight = petRect
+      ? Math.max(82, Math.floor(petRect.top - bubbleTop - 26))
+      : Math.floor(viewportHeight * 0.22);
+    const bubbleMaxHeight = Math.max(82, Math.min(116, bubbleSafeHeight));
+
+    const interactionVisible = !!interactionShell && !interactionShell.classList.contains('hidden');
+    const interactionRect = interactionVisible ? interactionShell.getBoundingClientRect() : null;
+    const stackBottom = interactionVisible && interactionRect
+      ? Math.max(26, Math.ceil(viewportHeight - interactionRect.top + 18))
+      : 26;
+    const stackMaxHeight = 82;
+
+    app.style.setProperty('--speech-bubble-top', `${bubbleTop}px`);
+    app.style.setProperty('--speech-bubble-max-height', `${bubbleMaxHeight}px`);
+    app.style.setProperty('--session-stack-bottom', `${stackBottom}px`);
+    app.style.setProperty('--session-stack-max-height', `${stackMaxHeight}px`);
+  }
+
   toggleSettings(force) {
     const show = typeof force === 'boolean' ? force : this.settingsPanel.classList.contains('hidden');
     this.settingsPanel.classList.toggle('hidden', !show);
+    this._scheduleLayoutSync();
   }
 
   bindSettings(config) {
@@ -217,5 +294,6 @@ export class RendererUiShell {
     sections.forEach((section) => {
       section.classList.toggle('hidden', section.dataset.providerSection !== selected);
     });
+    this._scheduleLayoutSync();
   }
 }

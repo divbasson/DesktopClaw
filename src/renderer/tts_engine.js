@@ -10,6 +10,8 @@ export class TtsEngine {
     this.currentObjectUrl = null;
     this.cancelled = false;
     this.runId = 0;
+    this.inFlightText = '';
+    this.inFlightPromise = null;
   }
 
   updateConfig(config) {
@@ -23,20 +25,34 @@ export class TtsEngine {
 
   async speak(text) {
     if (this.config.mute) return;
+    const value = String(text || '');
+    if (this.inFlightPromise && this.inFlightText === value && !this.cancelled) {
+      return this.inFlightPromise;
+    }
     this.stop({ notify: false });
     this.cancelled = false;
     const runId = ++this.runId;
 
-    if (this.config.tts?.usePiperTts) {
-      return this._speakPiper(text);
-    }
+    const speechPromise = this.config.tts?.usePiperTts
+      ? this._speakPiper(value)
+      : this._speakSystem(value, runId);
 
+    this.inFlightText = value;
+    this.inFlightPromise = speechPromise?.finally?.(() => {
+      if (this.inFlightPromise === speechPromise) {
+        this.inFlightPromise = null;
+        this.inFlightText = '';
+      }
+    }) || null;
+
+    return this.inFlightPromise;
+  }
+
+  async _speakSystem(value, runId) {
     if (!this.config.tts?.useSystemTts) return;
 
-    // Web Speech API fallback
     const synth = window.speechSynthesis;
     synth.cancel();
-    const value = String(text || '');
     const utterance = new SpeechSynthesisUtterance(value);
     const voices = synth.getVoices();
     const voice = voices.find((entry) => entry.name === this.config.tts.voiceName);
@@ -154,6 +170,8 @@ export class TtsEngine {
   stop({ notify = true } = {}) {
     this.cancelled = true;
     this.runId += 1;
+    this.inFlightText = '';
+    this.inFlightPromise = null;
     window.speechSynthesis?.cancel?.();
     if (this.currentAudio) {
       this.currentAudio.pause();

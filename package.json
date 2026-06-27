@@ -1,6 +1,6 @@
 {
   "name": "desktopclaw",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "OpenClaw Desktop Pet - Electron MVP",
   "main": "src/main/main.js",
   "author": "OpenClaw",
@@ -10,6 +10,7 @@
     "setup-piper": "node scripts/setup-piper.js",
     "pack": "electron-builder --dir",
     "dist:dir": "electron-builder --win dir",
+    "dist:mac": "electron-builder --mac dmg zip",
     "dist": "electron-builder --win nsis portable",
     "lint": "eslint . --ext .js",
     "test": "node scripts/test-request-lifecycle.js"
@@ -17,7 +18,6 @@
   "build": {
     "appId": "com.openclaw.desktoppet",
     "productName": "DesktopClaw",
-    "icon": "src/assets/openclaw.ico",
     "asar": false,
     "directories": {
       "buildResources": "build",
@@ -35,6 +35,13 @@
       "target": [
         "nsis",
         "portable"
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
       ]
     },
     "nsis": {

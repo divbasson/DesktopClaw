@@ -43,6 +43,16 @@
 
       <div id="session-stack"></div>
       <div id="speech-bubble" class="hidden"></div>
+      <button id="task-indicator" class="hidden" type="button" aria-label="Open activity history">
+        <span id="task-indicator-count">0</span>
+      </button>
+      <section id="task-drawer" class="task-drawer hidden" aria-label="Task activity">
+        <header>
+          <strong>Activity</strong>
+          <button id="task-drawer-close" type="button" data-action="close-task-drawer" title="Close activity">Close</button>
+        </header>
+        <div id="task-list"></div>
+      </section>
       <section id="history-panel" class="side-panel hidden" aria-label="Recent conversation">
         <header>
           <strong>Recent</strong>
