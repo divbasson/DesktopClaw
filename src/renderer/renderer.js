@@ -65,18 +65,35 @@ const REQUEST_STATUS_TEXT = {
 };
 
 class RequestManager {
-  constructor({ container, historyList, diagnosticsList, onCancelRequest }) {
+  constructor({
+    container,
+    historyList,
+    diagnosticsList,
+    taskIndicator,
+    taskIndicatorCount,
+    taskDrawer,
+    taskList,
+    onCancelRequest,
+  }) {
     this.container = container;
     this.historyList = historyList;
     this.diagnosticsList = diagnosticsList;
+    this.taskIndicator = taskIndicator;
+    this.taskIndicatorCount = taskIndicatorCount;
+    this.taskDrawer = taskDrawer;
+    this.taskList = taskList;
     this.onCancelRequest = onCancelRequest;
     this.requests = new Map();
     this.history = [];
     this.counter = 1;
     this.completedLifetimeMs = 2400;
     this.errorLifetimeMs = 7000;
-    this.maxVisibleSessions = 4;
+    this.maxVisibleSessions = 2;
     this.maxHistory = 30;
+    this.archiveIntervalMs = 30 * 60 * 1000;
+    this.staleHistoryMs = 10 * 60 * 1000;
+    this.expandedTaskId = null;
+    this.archiveTimer = setInterval(() => this.archiveOldHistory(), this.archiveIntervalMs);
     this.diagnostics = {
       gateway: 'unknown',
       agent: 'main',
@@ -96,6 +113,30 @@ class RequestManager {
       event.stopPropagation();
       this.onCancelRequest?.(requestId);
     });
+
+    this.taskIndicator?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleTaskDrawer();
+    });
+
+    this.taskDrawer?.addEventListener('click', (event) => {
+      const closeButton = event.target.closest('[data-action="close-task-drawer"]');
+      if (closeButton) {
+        event.preventDefault();
+        this.toggleTaskDrawer(false);
+        return;
+      }
+      const taskButton = event.target.closest('[data-task-id]');
+      if (!taskButton) return;
+      event.preventDefault();
+      const taskId = taskButton.getAttribute('data-task-id');
+      this.expandedTaskId = this.expandedTaskId === taskId ? null : taskId;
+      this.renderTaskList();
+    });
+
+    this.renderTaskIndicator();
+    this.renderTaskList();
   }
 
   createRequest(prompt, { source = 'Chat' } = {}) {
@@ -150,6 +191,8 @@ class RequestManager {
     });
     this.trimVisibleSessions();
     this.scrollToLatest();
+    this.renderTaskIndicator();
+    this.renderTaskList();
     return id;
   }
 
@@ -208,6 +251,9 @@ class RequestManager {
       clearInterval(request.elapsedTimer);
       request.elapsedTimer = null;
       this.pushHistory(request);
+      if (state === REQUEST_STATES.COMPLETED) {
+        this.flashTaskComplete();
+      }
       const lifetime = removeAfterMs ?? (state === REQUEST_STATES.COMPLETED ? this.completedLifetimeMs : this.errorLifetimeMs);
       request.removeTimer = setTimeout(() => this.removeRequest(id), lifetime);
     }
@@ -217,11 +263,14 @@ class RequestManager {
       lastEvent: `${state}: ${this.truncate(request.prompt, 44)}`,
     });
     this.scrollToLatest();
+    this.renderTaskIndicator();
+    this.renderTaskList();
   }
 
   scheduleProgress(id) {
+    const providerLabel = typeof getProviderLabel === 'function' ? getProviderLabel() : 'the agent';
     const milestones = [
-      [2500, REQUEST_STATES.SENT, 'OpenClaw has it. I am watching for the reply.'],
+      [2500, REQUEST_STATES.SENT, `${providerLabel} has it. I am watching for the reply.`],
       [8000, REQUEST_STATES.WAITING, 'Still waiting. I have not dropped it.'],
       [18000, REQUEST_STATES.WAITING, 'This is still running. You can keep using the app.'],
       [36000, REQUEST_STATES.WAITING, 'Still attached to this one. I will update you when it moves.'],
@@ -265,7 +314,7 @@ class RequestManager {
     if (!request) return false;
     request.cancelled = true;
     this.transition(id, REQUEST_STATES.CANCELLED, {
-      status: 'Cancelled here. Late OpenClaw replies will be ignored.',
+      status: 'Cancelled here. Late replies will be ignored.',
       removeAfterMs: 1800,
     });
     return true;
@@ -289,12 +338,21 @@ class RequestManager {
     setTimeout(() => request.card.remove(), 220);
     this.requests.delete(id);
     this.setDiagnostics({ activeRequests: this.getActiveRequests().length });
+    this.renderTaskIndicator();
+    this.renderTaskList();
   }
 
   trimVisibleSessions() {
+    const terminalStates = [
+      REQUEST_STATES.COMPLETED,
+      REQUEST_STATES.FAILED,
+      REQUEST_STATES.INTERRUPTED,
+      REQUEST_STATES.CANCELLED,
+    ];
     while (this.requests.size > this.maxVisibleSessions) {
-      const oldestId = this.requests.keys().next().value;
-      this.removeRequest(oldestId);
+      const removable = [...this.requests.values()].find((request) => terminalStates.includes(request.state));
+      if (!removable) break;
+      this.removeRequest(removable.id);
     }
   }
 
@@ -312,6 +370,124 @@ class RequestManager {
     });
     this.history = this.history.slice(0, this.maxHistory);
     this.renderHistory();
+    this.renderTaskIndicator();
+    this.renderTaskList();
+  }
+
+  getTaskEntries() {
+    const liveEntries = [...this.requests.values()].map((request) => ({
+      id: request.id,
+      prompt: request.prompt,
+      response: request.response || request.error || REQUEST_STATUS_TEXT[request.state],
+      state: request.state,
+      source: request.source,
+      createdAt: request.createdAt,
+      updatedAt: request.updatedAt,
+      live: true,
+    }));
+    const liveIds = new Set(liveEntries.map((entry) => entry.id));
+    const historyEntries = this.history
+      .filter((entry) => !liveIds.has(entry.id))
+      .map((entry) => ({ ...entry, live: false }));
+    return [...liveEntries, ...historyEntries]
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  }
+
+  renderTaskIndicator() {
+    if (!this.taskIndicator || !this.taskIndicatorCount) return;
+    const activeCount = this.getActiveRequests().length;
+    const entries = this.getTaskEntries();
+    const errorCount = entries.filter((entry) => [REQUEST_STATES.FAILED, REQUEST_STATES.INTERRUPTED].includes(entry.state)).length;
+    const completedCount = entries.filter((entry) => entry.state === REQUEST_STATES.COMPLETED).length;
+    const visibleCount = activeCount || Math.min(entries.length, 9);
+
+    this.taskIndicator.classList.toggle('hidden', entries.length === 0);
+    this.taskIndicator.classList.toggle('has-active', activeCount > 0);
+    this.taskIndicator.classList.toggle('has-error', activeCount === 0 && errorCount > 0);
+    this.taskIndicator.classList.toggle('has-completed', activeCount === 0 && errorCount === 0 && completedCount > 0);
+    this.taskIndicatorCount.textContent = String(visibleCount);
+    this.taskIndicator.setAttribute(
+      'aria-label',
+      activeCount > 0 ? `${activeCount} running task${activeCount === 1 ? '' : 's'}` : 'Open task history'
+    );
+  }
+
+  renderTaskList() {
+    if (!this.taskList) return;
+    const entries = this.getTaskEntries();
+    if (entries.length === 0) {
+      this.taskList.innerHTML = '<div class="task-empty">No activity yet.</div>';
+      return;
+    }
+
+    const now = Date.now();
+    this.taskList.innerHTML = entries.map((entry) => {
+      const isExpanded = entry.id === this.expandedTaskId;
+      const isStale = now - Number(entry.updatedAt || entry.createdAt || now) > this.staleHistoryMs;
+      const tone = this.getTaskTone(entry.state);
+      const elapsed = this.formatElapsed((entry.updatedAt || now) - (entry.createdAt || now));
+      const status = entry.live && tone === 'running'
+        ? 'Running'
+        : REQUEST_STATUS_TEXT[entry.state] || entry.state;
+      return `
+        <article class="task-row task-${tone}${isStale ? ' task-stale' : ''}${isExpanded ? ' is-expanded' : ''}">
+          <button type="button" class="task-summary" data-task-id="${_escapeHtml(entry.id)}">
+            <span class="task-led" aria-hidden="true"></span>
+            <span class="task-copy">
+              <span class="task-topline">
+                <span class="task-source">${_escapeHtml(entry.source || 'Chat')}</span>
+                <span class="task-age">${_escapeHtml(elapsed)}</span>
+              </span>
+              <span class="task-title">${_escapeHtml(this.truncate(entry.prompt, 82))}</span>
+              <span class="task-status">${_escapeHtml(status)}</span>
+            </span>
+          </button>
+          ${isExpanded ? `
+            <div class="task-detail">
+              <div class="task-detail-label">Request</div>
+              <p>${_escapeHtml(entry.prompt)}</p>
+              <div class="task-detail-label">Reply</div>
+              <p>${_escapeHtml(entry.response || 'No reply captured yet.')}</p>
+            </div>` : ''}
+        </article>`;
+    }).join('');
+  }
+
+  getTaskTone(state) {
+    if ([REQUEST_STATES.COMPLETED].includes(state)) return 'completed';
+    if ([REQUEST_STATES.FAILED, REQUEST_STATES.INTERRUPTED].includes(state)) return 'error';
+    if ([REQUEST_STATES.CANCELLED].includes(state)) return 'cancelled';
+    return 'running';
+  }
+
+  toggleTaskDrawer(force) {
+    if (!this.taskDrawer) return;
+    const show = typeof force === 'boolean' ? force : this.taskDrawer.classList.contains('hidden');
+    this.taskDrawer.classList.toggle('hidden', !show);
+    if (show) this.renderTaskList();
+  }
+
+  flashTaskComplete() {
+    if (!this.taskIndicator) return;
+    this.taskIndicator.classList.remove('flash-complete');
+    void this.taskIndicator.offsetWidth;
+    this.taskIndicator.classList.add('flash-complete');
+    setTimeout(() => this.taskIndicator?.classList.remove('flash-complete'), 1600);
+  }
+
+  archiveOldHistory() {
+    const now = Date.now();
+    const keepRecent = this.history.filter((entry, index) => (
+      index < 20 || now - Number(entry.updatedAt || entry.createdAt || now) < this.archiveIntervalMs
+    ));
+    if (keepRecent.length === this.history.length) return;
+    this.history = keepRecent.slice(0, this.maxHistory);
+    if (this.expandedTaskId && !this.history.some((entry) => entry.id === this.expandedTaskId) && !this.requests.has(this.expandedTaskId)) {
+      this.expandedTaskId = null;
+    }
+    this.renderHistory();
+    this.renderTaskIndicator();
+    this.renderTaskList();
   }
 
   renderHistory() {
@@ -384,10 +560,18 @@ const historyList = document.getElementById('history-list');
 const diagnosticsPanel = document.getElementById('diagnostics-panel');
 const diagnosticsClose = document.getElementById('diagnostics-close');
 const diagnosticsList = document.getElementById('diagnostics-list');
+const taskIndicator = document.getElementById('task-indicator');
+const taskIndicatorCount = document.getElementById('task-indicator-count');
+const taskDrawer = document.getElementById('task-drawer');
+const taskList = document.getElementById('task-list');
 const requestManager = new RequestManager({
   container: sessionStack,
   historyList,
   diagnosticsList,
+  taskIndicator,
+  taskIndicatorCount,
+  taskDrawer,
+  taskList,
   onCancelRequest: (requestId) => cancelRequestFromUi(requestId),
 });
 const pet = document.getElementById('pet');
@@ -812,6 +996,21 @@ function showSpeech(text, timeoutMs = 8000) {
   updateControlRail();
 }
 
+function estimateReadbackMs(text) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(2600, Math.min(22000, Math.round((words / 2.45) * 1000)));
+}
+
+async function speakWithReadingBubble(text, { finishTimeoutMs = 9000 } = {}) {
+  const value = String(text || '');
+  uiShell.startBubbleReveal(value, estimateReadbackMs(value));
+  const speechSerial = speechInterruptSerial;
+  await speak(value);
+  if (speechSerial === speechInterruptSerial) {
+    uiShell.finishBubbleReveal(value, finishTimeoutMs, { scroll: 'bottom' });
+  }
+}
+
 function cancelRequestFromUi(requestId) {
   const cancelled = requestManager.cancelRequest(requestId);
   if (!cancelled) return;
@@ -1025,15 +1224,16 @@ function applyCursorReaction() {
     // mousemove is always received even when the window ignores clicks.
     const el = document.elementFromPoint(event.clientX, event.clientY);
     const overInteractive = !!el?.closest(
-      '#pet, #interaction-shell, #speech-bubble, #settings-panel, .side-panel'
+      '#pet, #interaction-shell, #speech-bubble, #task-indicator, .task-drawer, #settings-panel, .side-panel'
     );
     // Honour clickThroughWhenIdle: when idle with no overlays, make even the pet click-through.
     const composerOpen = !interactionShell.classList.contains('hidden');
     const settingsOpen = !settingsPanel.classList.contains('hidden');
     const historyOpen = !historyPanel.classList.contains('hidden');
     const diagnosticsOpen = !diagnosticsPanel.classList.contains('hidden');
+    const taskDrawerOpen = !taskDrawer?.classList.contains('hidden');
     const idlePassthrough =
-      config?.clickThroughWhenIdle && lastState === 'idle' && !composerOpen && !settingsOpen && !historyOpen && !diagnosticsOpen;
+      config?.clickThroughWhenIdle && lastState === 'idle' && !composerOpen && !settingsOpen && !historyOpen && !diagnosticsOpen && !taskDrawerOpen;
     window.desktopClaw?.setIgnoreMouse(!overInteractive || idlePassthrough);
   });
 
@@ -1186,11 +1386,9 @@ async function submitQuery(text, options = {}) {
         clearProgressActivity(requestId);
         requestManager.transition(requestId, REQUEST_STATES.RESPONDING, { status: REQUEST_STATUS_TEXT[REQUEST_STATES.RESPONDING] });
         requestManager.transition(requestId, REQUEST_STATES.COMPLETED, { response: triage.text });
-        showSpeech(triage.text, 0);
-        const speechSerial = speechInterruptSerial;
-        await speak(triage.text);
-        if (!requestManager.isCancelled(requestId) && speechSerial === speechInterruptSerial) {
-          uiShell.finishBubbleReveal(triage.text, 9000);
+        await speakWithReadingBubble(triage.text, { finishTimeoutMs: 9000 });
+        if (!requestManager.isCancelled(requestId)) {
+          updateControlRail();
         }
         if (config.mute) {
           setState('idle');
@@ -1215,8 +1413,7 @@ async function submitQuery(text, options = {}) {
         });
         setState('error');
         if (shouldSurface) {
-          showSpeech(triage.text, 5200);
-          await speak(triage.text);
+          await speakWithReadingBubble(triage.text, { finishTimeoutMs: 5200 });
         }
         setTimeout(() => {
           setState('idle');

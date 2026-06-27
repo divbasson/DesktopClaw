@@ -106,9 +106,9 @@ Installer and standalone builds are available from the GitHub releases page:
   <a href="https://github.com/divbasson/DesktopClaw/releases"><strong>Download DesktopClaw Releases »</strong></a>
 </div>
 
-Use the installer when you want DesktopClaw registered like a normal Windows app with shortcuts. Use the standalone/portable build when you want to try it without installing it system-wide.
+Use the Windows installer when you want DesktopClaw registered like a normal Windows app with shortcuts. Use the standalone/portable build when you want to try it without installing it system-wide. macOS release builds are published as DMG and ZIP artifacts.
 
-Runtime settings are stored under the current Windows user profile, so packaged builds can preserve your gateway, voice, hotkey, and UI preferences between launches.
+Runtime settings are stored under the current user profile, so packaged builds can preserve your gateway, voice, hotkey, and UI preferences between launches.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -118,7 +118,7 @@ Use the release installer or standalone build for normal use. Run from source wh
 
 ### Prerequisites
 
-- Windows.
+- Windows or macOS for packaged builds. Windows remains the primary development and voice-tested target.
 - Node.js `20.x` or newer compatible with the Electron dependency set.
 - An OpenClaw gateway reachable over WebSocket.
 - Optional: Piper installed locally for speech output.
@@ -249,7 +249,13 @@ For installer and portable artifacts:
 npm run dist
 ```
 
-Build output is written to `dist/`. Release artifacts include an installer and a standalone/portable build when produced through the Windows packaging flow.
+For macOS DMG and ZIP artifacts:
+
+```powershell
+npm run dist:mac
+```
+
+Build output is written to `dist/`. Release artifacts include a Windows installer, Windows standalone/portable build, macOS DMG, and macOS ZIP when produced through GitHub Actions. macOS builds are currently unsigned unless Apple signing credentials are added to the release workflow.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
