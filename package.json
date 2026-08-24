@@ -57,7 +57,7 @@
   },
   "devDependencies": {
     "electron": "^39.8.9",
-    "electron-builder": "^26.8.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^8.57.1"
   }
 }
